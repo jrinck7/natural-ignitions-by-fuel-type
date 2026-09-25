@@ -11,3 +11,8 @@ norton-root-ca.crt
 __pycache__/
 data/
 outputs/
+
+# LaTeX build artifacts - regenerated on every compile
+pdfs/*.aux
+pdfs/*.log
+pdfs/*.out

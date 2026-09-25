@@ -1,0 +1,780 @@
+\documentclass[11pt]{article}
+
+    \usepackage[breakable]{tcolorbox}
+    \usepackage{parskip} % Stop auto-indenting (to mimic markdown behaviour)
+    
+
+    % Basic figure setup, for now with no caption control since it's done
+    % automatically by Pandoc (which extracts ![](path) syntax from Markdown).
+    \usepackage{graphicx}
+    % Maintain compatibility with old templates. Remove in nbconvert 6.0
+    \let\Oldincludegraphics\includegraphics
+    % Ensure that by default, figures have no caption (until we provide a
+    % proper Figure object with a Caption API and a way to capture that
+    % in the conversion process - todo).
+    \usepackage{caption}
+    \DeclareCaptionFormat{nocaption}{}
+    \captionsetup{format=nocaption,aboveskip=0pt,belowskip=0pt}
+
+    \usepackage{float}
+    \floatplacement{figure}{H} % forces figures to be placed at the correct location
+    \usepackage{xcolor} % Allow colors to be defined
+    \usepackage{enumerate} % Needed for markdown enumerations to work
+    \usepackage{geometry} % Used to adjust the document margins
+    \usepackage{amsmath} % Equations
+    \usepackage{amssymb} % Equations
+    \usepackage{textcomp} % defines textquotesingle
+    % Hack from http://tex.stackexchange.com/a/47451/13684:
+    \AtBeginDocument{%
+        \def\PYZsq{\textquotesingle}% Upright quotes in Pygmentized code
+    }
+    \usepackage{upquote} % Upright quotes for verbatim code
+    \usepackage{eurosym} % defines \euro
+
+    \usepackage{iftex}
+    \ifPDFTeX
+        \usepackage[T1]{fontenc}
+        \IfFileExists{alphabeta.sty}{
+              \usepackage{alphabeta}
+          }{
+              \usepackage[mathletters]{ucs}
+              \usepackage[utf8x]{inputenc}
+          }
+    \else
+        \usepackage{fontspec}
+        \usepackage{unicode-math}
+    \fi
+
+    \usepackage{fancyvrb} % verbatim replacement that allows latex
+    \usepackage{grffile} % extends the file name processing of package graphics
+                         % to support a larger range
+    \makeatletter % fix for old versions of grffile with XeLaTeX
+    \@ifpackagelater{grffile}{2019/11/01}
+    {
+      % Do nothing on new versions
+    }
+    {
+      \def\Gread@@xetex#1{%
+        \IfFileExists{"\Gin@base".bb}%
+        {\Gread@eps{\Gin@base.bb}}%
+        {\Gread@@xetex@aux#1}%
+      }
+    }
+    \makeatother
+    \usepackage[Export]{adjustbox} % Used to constrain images to a maximum size
+    \adjustboxset{max size={0.9\linewidth}{0.9\paperheight}}
+
+    % The hyperref package gives us a pdf with properly built
+    % internal navigation ('pdf bookmarks' for the table of contents,
+    % internal cross-reference links, web links for URLs, etc.)
+    \usepackage{hyperref}
+    % The default LaTeX title has an obnoxious amount of whitespace. By default,
+    % titling removes some of it. It also provides customization options.
+    \usepackage{titling}
+    \usepackage{longtable} % longtable support required by pandoc >1.10
+    \usepackage{booktabs}  % table support for pandoc > 1.12.2
+    \usepackage{array}     % table support for pandoc >= 2.11.3
+    \usepackage{calc}      % table minipage width calculation for pandoc >= 2.11.1
+    \usepackage[inline]{enumitem} % IRkernel/repr support (it uses the enumerate* environment)
+    \usepackage[normalem]{ulem} % ulem is needed to support strikethroughs (\sout)
+                                % normalem makes italics be italics, not underlines
+    \usepackage{soul}      % strikethrough (\st) support for pandoc >= 3.0.0
+    \usepackage{mathrsfs}
+    
+
+    
+    % Colors for the hyperref package
+    \definecolor{urlcolor}{rgb}{0,.145,.698}
+    \definecolor{linkcolor}{rgb}{.71,0.21,0.01}
+    \definecolor{citecolor}{rgb}{.12,.54,.11}
+
+    % ANSI colors
+    \definecolor{ansi-black}{HTML}{3E424D}
+    \definecolor{ansi-black-intense}{HTML}{282C36}
+    \definecolor{ansi-red}{HTML}{E75C58}
+    \definecolor{ansi-red-intense}{HTML}{B22B31}
+    \definecolor{ansi-green}{HTML}{00A250}
+    \definecolor{ansi-green-intense}{HTML}{007427}
+    \definecolor{ansi-yellow}{HTML}{DDB62B}
+    \definecolor{ansi-yellow-intense}{HTML}{B27D12}
+    \definecolor{ansi-blue}{HTML}{208FFB}
+    \definecolor{ansi-blue-intense}{HTML}{0065CA}
+    \definecolor{ansi-magenta}{HTML}{D160C4}
+    \definecolor{ansi-magenta-intense}{HTML}{A03196}
+    \definecolor{ansi-cyan}{HTML}{60C6C8}
+    \definecolor{ansi-cyan-intense}{HTML}{258F8F}
+    \definecolor{ansi-white}{HTML}{C5C1B4}
+    \definecolor{ansi-white-intense}{HTML}{A1A6B2}
+    \definecolor{ansi-default-inverse-fg}{HTML}{FFFFFF}
+    \definecolor{ansi-default-inverse-bg}{HTML}{000000}
+
+    % common color for the border for error outputs.
+    \definecolor{outerrorbackground}{HTML}{FFDFDF}
+
+    % commands and environments needed by pandoc snippets
+    % extracted from the output of `pandoc -s`
+    \providecommand{\tightlist}{%
+      \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+    % Add ',fontsize=\small' for more characters per line
+    \newenvironment{Shaded}{}{}
+    \newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{{#1}}}}
+    \newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{{#1}}}
+    \newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{{#1}}}}
+    \newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{{#1}}}
+    \newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{{#1}}}}
+    \newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{{#1}}}
+    \newcommand{\RegionMarkerTok}[1]{{#1}}
+    \newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{{#1}}}}
+    \newcommand{\NormalTok}[1]{{#1}}
+
+    % Additional commands for more recent versions of Pandoc
+    \newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{{#1}}}
+    \newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{{#1}}}
+    \newcommand{\ImportTok}[1]{{#1}}
+    \newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{{#1}}}}
+    \newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{{#1}}}
+    \newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{{#1}}}}
+    \newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{{#1}}}
+    \newcommand{\BuiltInTok}[1]{{#1}}
+    \newcommand{\ExtensionTok}[1]{{#1}}
+    \newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{{#1}}}
+    \newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{{#1}}}
+    \newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+
+
+    % Define a nice break command that doesn't care if a line doesn't already
+    % exist.
+    \def\br{\hspace*{\fill} \\* }
+    % Math Jax compatibility definitions
+    \def\gt{>}
+    \def\lt{<}
+    \let\Oldtex\TeX
+    \let\Oldlatex\LaTeX
+    \renewcommand{\TeX}{\textrm{\Oldtex}}
+    \renewcommand{\LaTeX}{\textrm{\Oldlatex}}
+    % Document parameters
+    % Document title
+    \title{Project2\_Launch\_JansenRinck}
+    
+    
+    
+    
+    
+    
+    
+% Pygments definitions
+\makeatletter
+\def\PY@reset{\let\PY@it=\relax \let\PY@bf=\relax%
+    \let\PY@ul=\relax \let\PY@tc=\relax%
+    \let\PY@bc=\relax \let\PY@ff=\relax}
+\def\PY@tok#1{\csname PY@tok@#1\endcsname}
+\def\PY@toks#1+{\ifx\relax#1\empty\else%
+    \PY@tok{#1}\expandafter\PY@toks\fi}
+\def\PY@do#1{\PY@bc{\PY@tc{\PY@ul{%
+    \PY@it{\PY@bf{\PY@ff{#1}}}}}}}
+\def\PY#1#2{\PY@reset\PY@toks#1+\relax+\PY@do{#2}}
+
+\@namedef{PY@tok@w}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.73,0.73}{##1}}}
+\@namedef{PY@tok@c}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+\@namedef{PY@tok@cp}{\def\PY@tc##1{\textcolor[rgb]{0.61,0.40,0.00}{##1}}}
+\@namedef{PY@tok@k}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@kp}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@kt}{\def\PY@tc##1{\textcolor[rgb]{0.69,0.00,0.25}{##1}}}
+\@namedef{PY@tok@o}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@ow}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.67,0.13,1.00}{##1}}}
+\@namedef{PY@tok@nb}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@nf}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\@namedef{PY@tok@nc}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\@namedef{PY@tok@nn}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\@namedef{PY@tok@ne}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.80,0.25,0.22}{##1}}}
+\@namedef{PY@tok@nv}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@no}{\def\PY@tc##1{\textcolor[rgb]{0.53,0.00,0.00}{##1}}}
+\@namedef{PY@tok@nl}{\def\PY@tc##1{\textcolor[rgb]{0.46,0.46,0.00}{##1}}}
+\@namedef{PY@tok@ni}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.44,0.44,0.44}{##1}}}
+\@namedef{PY@tok@na}{\def\PY@tc##1{\textcolor[rgb]{0.41,0.47,0.13}{##1}}}
+\@namedef{PY@tok@nt}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@nd}{\def\PY@tc##1{\textcolor[rgb]{0.67,0.13,1.00}{##1}}}
+\@namedef{PY@tok@s}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@sd}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@si}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.64,0.35,0.47}{##1}}}
+\@namedef{PY@tok@se}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.67,0.36,0.12}{##1}}}
+\@namedef{PY@tok@sr}{\def\PY@tc##1{\textcolor[rgb]{0.64,0.35,0.47}{##1}}}
+\@namedef{PY@tok@ss}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@sx}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@m}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@gh}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,0.50}{##1}}}
+\@namedef{PY@tok@gu}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.50,0.00,0.50}{##1}}}
+\@namedef{PY@tok@gd}{\def\PY@tc##1{\textcolor[rgb]{0.63,0.00,0.00}{##1}}}
+\@namedef{PY@tok@gi}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.52,0.00}{##1}}}
+\@namedef{PY@tok@gr}{\def\PY@tc##1{\textcolor[rgb]{0.89,0.00,0.00}{##1}}}
+\@namedef{PY@tok@ge}{\let\PY@it=\textit}
+\@namedef{PY@tok@gs}{\let\PY@bf=\textbf}
+\@namedef{PY@tok@ges}{\let\PY@bf=\textbf\let\PY@it=\textit}
+\@namedef{PY@tok@gp}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,0.50}{##1}}}
+\@namedef{PY@tok@go}{\def\PY@tc##1{\textcolor[rgb]{0.44,0.44,0.44}{##1}}}
+\@namedef{PY@tok@gt}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.27,0.87}{##1}}}
+\@namedef{PY@tok@err}{\def\PY@bc##1{{\setlength{\fboxsep}{\string -\fboxrule}\fcolorbox[rgb]{1.00,0.00,0.00}{1,1,1}{\strut ##1}}}}
+\@namedef{PY@tok@kc}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@kd}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@kn}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@kr}{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@bp}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\@namedef{PY@tok@fm}{\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\@namedef{PY@tok@vc}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@vg}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@vi}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@vm}{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\@namedef{PY@tok@sa}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@sb}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@sc}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@dl}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@s2}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@sh}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@s1}{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\@namedef{PY@tok@mb}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@mf}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@mh}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@mi}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@il}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@mo}{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\@namedef{PY@tok@ch}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+\@namedef{PY@tok@cm}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+\@namedef{PY@tok@cpf}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+\@namedef{PY@tok@c1}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+\@namedef{PY@tok@cs}{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.24,0.48,0.48}{##1}}}
+
+\def\PYZbs{\char`\\}
+\def\PYZus{\char`\_}
+\def\PYZob{\char`\{}
+\def\PYZcb{\char`\}}
+\def\PYZca{\char`\^}
+\def\PYZam{\char`\&}
+\def\PYZlt{\char`\<}
+\def\PYZgt{\char`\>}
+\def\PYZsh{\char`\#}
+\def\PYZpc{\char`\%}
+\def\PYZdl{\char`\$}
+\def\PYZhy{\char`\-}
+\def\PYZsq{\char`\'}
+\def\PYZdq{\char`\"}
+\def\PYZti{\char`\~}
+% for compatibility with earlier versions
+\def\PYZat{@}
+\def\PYZlb{[}
+\def\PYZrb{]}
+\makeatother
+
+
+    % For linebreaks inside Verbatim environment from package fancyvrb.
+    \makeatletter
+        \newbox\Wrappedcontinuationbox
+        \newbox\Wrappedvisiblespacebox
+        \newcommand*\Wrappedvisiblespace {\textcolor{red}{\textvisiblespace}}
+        \newcommand*\Wrappedcontinuationsymbol {\textcolor{red}{\llap{\tiny$\m@th\hookrightarrow$}}}
+        \newcommand*\Wrappedcontinuationindent {3ex }
+        \newcommand*\Wrappedafterbreak {\kern\Wrappedcontinuationindent\copy\Wrappedcontinuationbox}
+        % Take advantage of the already applied Pygments mark-up to insert
+        % potential linebreaks for TeX processing.
+        %        {, <, #, %, $, ' and ": go to next line.
+        %        _, }, ^, &, >, - and ~: stay at end of broken line.
+        % Use of \textquotesingle for straight quote.
+        \newcommand*\Wrappedbreaksatspecials {%
+            \def\PYGZus{\discretionary{\char`\_}{\Wrappedafterbreak}{\char`\_}}%
+            \def\PYGZob{\discretionary{}{\Wrappedafterbreak\char`\{}{\char`\{}}%
+            \def\PYGZcb{\discretionary{\char`\}}{\Wrappedafterbreak}{\char`\}}}%
+            \def\PYGZca{\discretionary{\char`\^}{\Wrappedafterbreak}{\char`\^}}%
+            \def\PYGZam{\discretionary{\char`\&}{\Wrappedafterbreak}{\char`\&}}%
+            \def\PYGZlt{\discretionary{}{\Wrappedafterbreak\char`\<}{\char`\<}}%
+            \def\PYGZgt{\discretionary{\char`\>}{\Wrappedafterbreak}{\char`\>}}%
+            \def\PYGZsh{\discretionary{}{\Wrappedafterbreak\char`\#}{\char`\#}}%
+            \def\PYGZpc{\discretionary{}{\Wrappedafterbreak\char`\%}{\char`\%}}%
+            \def\PYGZdl{\discretionary{}{\Wrappedafterbreak\char`\$}{\char`\$}}%
+            \def\PYGZhy{\discretionary{\char`\-}{\Wrappedafterbreak}{\char`\-}}%
+            \def\PYGZsq{\discretionary{}{\Wrappedafterbreak\textquotesingle}{\textquotesingle}}%
+            \def\PYGZdq{\discretionary{}{\Wrappedafterbreak\char`\"}{\char`\"}}%
+            \def\PYGZti{\discretionary{\char`\~}{\Wrappedafterbreak}{\char`\~}}%
+        }
+        % Some characters . , ; ? ! / are not pygmentized.
+        % This macro makes them "active" and they will insert potential linebreaks
+        \newcommand*\Wrappedbreaksatpunct {%
+            \lccode`\~`\.\lowercase{\def~}{\discretionary{\hbox{\char`\.}}{\Wrappedafterbreak}{\hbox{\char`\.}}}%
+            \lccode`\~`\,\lowercase{\def~}{\discretionary{\hbox{\char`\,}}{\Wrappedafterbreak}{\hbox{\char`\,}}}%
+            \lccode`\~`\;\lowercase{\def~}{\discretionary{\hbox{\char`\;}}{\Wrappedafterbreak}{\hbox{\char`\;}}}%
+            \lccode`\~`\:\lowercase{\def~}{\discretionary{\hbox{\char`\:}}{\Wrappedafterbreak}{\hbox{\char`\:}}}%
+            \lccode`\~`\?\lowercase{\def~}{\discretionary{\hbox{\char`\?}}{\Wrappedafterbreak}{\hbox{\char`\?}}}%
+            \lccode`\~`\!\lowercase{\def~}{\discretionary{\hbox{\char`\!}}{\Wrappedafterbreak}{\hbox{\char`\!}}}%
+            \lccode`\~`\/\lowercase{\def~}{\discretionary{\hbox{\char`\/}}{\Wrappedafterbreak}{\hbox{\char`\/}}}%
+            \catcode`\.\active
+            \catcode`\,\active
+            \catcode`\;\active
+            \catcode`\:\active
+            \catcode`\?\active
+            \catcode`\!\active
+            \catcode`\/\active
+            \lccode`\~`\~
+        }
+    \makeatother
+
+    \let\OriginalVerbatim=\Verbatim
+    \makeatletter
+    \renewcommand{\Verbatim}[1][1]{%
+        %\parskip\z@skip
+        \sbox\Wrappedcontinuationbox {\Wrappedcontinuationsymbol}%
+        \sbox\Wrappedvisiblespacebox {\FV@SetupFont\Wrappedvisiblespace}%
+        \def\FancyVerbFormatLine ##1{\hsize\linewidth
+            \vtop{\raggedright\hyphenpenalty\z@\exhyphenpenalty\z@
+                \doublehyphendemerits\z@\finalhyphendemerits\z@
+                \strut ##1\strut}%
+        }%
+        % If the linebreak is at a space, the latter will be displayed as visible
+        % space at end of first line, and a continuation symbol starts next line.
+        % Stretch/shrink are however usually zero for typewriter font.
+        \def\FV@Space {%
+            \nobreak\hskip\z@ plus\fontdimen3\font minus\fontdimen4\font
+            \discretionary{\copy\Wrappedvisiblespacebox}{\Wrappedafterbreak}
+            {\kern\fontdimen2\font}%
+        }%
+
+        % Allow breaks at special characters using \PYG... macros.
+        \Wrappedbreaksatspecials
+        % Breaks at punctuation characters . , ; ? ! and / need catcode=\active
+        \OriginalVerbatim[#1,codes*=\Wrappedbreaksatpunct]%
+    }
+    \makeatother
+
+    % Exact colors from NB
+    \definecolor{incolor}{HTML}{303F9F}
+    \definecolor{outcolor}{HTML}{D84315}
+    \definecolor{cellborder}{HTML}{CFCFCF}
+    \definecolor{cellbackground}{HTML}{F7F7F7}
+
+    % prompt
+    \makeatletter
+    \newcommand{\boxspacing}{\kern\kvtcb@left@rule\kern\kvtcb@boxsep}
+    \makeatother
+    \newcommand{\prompt}[4]{
+        {\ttfamily\llap{{\color{#2}[#3]:\hspace{3pt}#4}}\vspace{-\baselineskip}}
+    }
+    
+
+    
+    % Prevent overflowing lines due to hard-to-break entities
+    \sloppy
+    % Setup hyperref package
+    \hypersetup{
+      breaklinks=true,  % so long urls are correctly broken across lines
+      colorlinks=true,
+      urlcolor=urlcolor,
+      linkcolor=linkcolor,
+      citecolor=citecolor,
+      }
+    % Slightly bigger margins than the latex defaults
+    
+    \geometry{verbose,tmargin=0.5in,bmargin=0.5in,lmargin=0.5in,rmargin=0.5in}
+    
+    
+
+\begin{document}
+    
+    \maketitle
+    
+    
+
+    
+    \hypertarget{project-2-launch}{%
+\section{Project 2: Launch}\label{project-2-launch}}
+
+    \hypertarget{research-question}{%
+\subsection{Research Question:}\label{research-question}}
+
+Between 2018 and 2020, does the rate at which lightning strikes convert
+into wildfire ignitions vary by fuel type across the ecoregions of the
+contiguous United States, independent of raw lightning exposure?
+
+    \hypertarget{data}{%
+\section{Data:}\label{data}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \href{https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.6}{Spatial
+  wildfire occurrence data for the United States, 1992-2020 (6th
+  Edition)(USFS)}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Federal, State and Local fire data aggreagated
+  \item
+    Discovery date, final fire size, point location (1 sq mile
+    accuracy), wildfire-cause
+  \item
+    2.3 million geo-referenced wildfire records
+  \end{itemize}
+\item
+  \href{https://search.earthdata.nasa.gov/search/granules/collection-details?p=C3894650367-GHRC_DAAC\&pg\%5B0\%5D\%5Bv\%5D=f\&pg\%5B0\%5D\%5Bgsk\%5D=-start_date\&q=Lightning\%20Mapper\&lat=40.780546668112606\&long=-83.81276234265948\&zoom=3.990854889796647}{Combined
+  Geostationary Lightning Mapper (GLM) Hourly Thunder Hour Data Product
+  (NASA)}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    2019 - 2025
+  \item
+    Two sattelites GOES-18 (west) and GOES-19 (east)
+  \item
+    Thunder hour: an hour with detected lightning at a location - a
+    frequency-based storm-activity metric, less biased by a sensor's
+    geographic detection-sensitivity variation than raw flash counts
+  \item
+    Resolution: 5 km
+  \end{itemize}
+\item
+  \href{https://www.sciencebase.gov/catalog/item/6a1602c7b66b013d45990b82}{LANDFIRE's
+  40 Scott and Burgan Fire Behavior Fuel Model (FBFM40), CONUS raster
+  (USFS \& USGS}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    40 fuel models classifying surface fuel loading by type (grass,
+    brush, timber, slash), size class, bed depth, and moisture of
+    extinction
+  \item
+    Fuel assignments aren't static - herbaceous fuels shift between live
+    and dead through the growing season, and burned or otherwise
+    disturbed areas are updated to reflect estimated recovery through
+    2022
+  \end{itemize}
+\item
+  \href{https://www.epa.gov/eco-research/level-iii-and-iv-ecoregions-continental-united-states}{Level
+  III Ecoregions of the Conterminous United States (EPA)}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Ecoregions mark areas of broadly similar ecosystems - a spatial
+    framework for managing and comparing environmental resources across
+    agencies
+  \item
+    Delineated from patterns across multiple factors (geology,
+    vegetation, climate, soils, land use, wildlife, hydrology), weighted
+    differently region to region
+  \item
+    Four Levels: Level I (15 regions, North America) → Level II (50) →
+    Level III (85 in the conterminous US) → Level IV (further
+    subdivisions)
+  \end{itemize}
+\item
+  \href{https://in-form-nifc.hub.arcgis.com/pages/in-form-faqs}{Backup
+  Wildfire Data: Interagency Fire Occurrence Reporting Modules (InFORM}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Ongling incorporation of historic data across other agencies is
+    still in progress
+  \item
+    Data still needs to be backfilled
+  \end{itemize}
+\end{enumerate}
+
+    \hypertarget{data-processing}{%
+\subsection{Data Processing:}\label{data-processing}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  CRS
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Albers Equal Area Conic
+
+    \begin{itemize}
+    \tightlist
+    \item
+      Preserves area calculation accuracy
+    \item
+      Minimal distortion for CONUS
+    \end{itemize}
+  \end{itemize}
+\item
+  Zonal Statistics at CONUS Scale for LANDFIRE Raster
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Windowed (chunked) reads for the raster data set to avoid memory
+    issues in Docker
+  \end{itemize}
+\item
+  Lightning Data Cropping to CONUS
+\item
+  LANDFIRE Attribute Table
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Translate values to fuel model classes
+  \end{itemize}
+\item
+  Categorize Fuel Types
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Single majority class per eco region?
+  \item
+    Proportions of fuel class per eco region?
+  \item
+    Lightning strikes per fuel class
+  \end{itemize}
+\end{enumerate}
+
+    \hypertarget{analysis-methods}{%
+\subsection{Analysis Methods:}\label{analysis-methods}}
+
+\hypertarget{spatial-joins-and-overlays}{%
+\subsubsection{Spatial joins and
+overlays}\label{spatial-joins-and-overlays}}
+
+\begin{itemize}
+\tightlist
+\item
+  Fire points joined to ecoregion polygons (point-in-polygon)
+\item
+  Fire points sampled against the fuel raster (tagging each ignition
+  with its fuel class)
+\item
+  Lightning grid cells overlaid on the fuel raster to assign each cell a
+  majority fuel class
+\item
+  Statistics of the fuel raster within ecoregion polygons (raster
+  clipped by polygon)
+\end{itemize}
+
+\hypertarget{attribute-filtering-and-aggregation}{%
+\subsubsection{Attribute filtering and
+aggregation}\label{attribute-filtering-and-aggregation}}
+
+\begin{itemize}
+\tightlist
+\item
+  Filtering fire records to NWCG\_CAUSE == ``Natural'' and to the date
+  range February 2019--December 2020
+\item
+  Lightning will use the combined Monthly Thunder Hour product for 2019
+  and 2020 to summ across CONUS to get a per grid cell count
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Monthly Thunder Hour: did lightning happen in this cell during this
+    hour, yes or no?
+  \end{itemize}
+\item
+  Aggregating fuel pixel counts within each ecoregion into classes
+\end{itemize}
+
+\hypertarget{choropleth-mapping-and-advanced-visualization}{%
+\subsubsection{Choropleth mapping and advanced
+visualization}\label{choropleth-mapping-and-advanced-visualization}}
+
+\begin{itemize}
+\tightlist
+\item
+  Fuel map colored by their ignition-to-thunder-hour ratio
+\item
+  Ecoregions colored by their ignition-to-thunder-hour ratio
+\item
+  Create a map that displays the areas with the most lightning cause
+  wildfire ignitions
+\end{itemize}
+
+    \includegraphics{/home/jovyan/work/Project2/Project2_OverviewofData.png}
+
+    \begin{tcolorbox}[breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground, colframe=cellborder]
+\prompt{In}{incolor}{1}{\boxspacing}
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c+c1}{\PYZsh{} \PYZpc{}pip install earthaccess}
+\PY{c+c1}{\PYZsh{} import earthaccess}
+\PY{c+c1}{\PYZsh{}import glob}
+
+\PY{c+c1}{\PYZsh{}files = sorted(glob.glob(\PYZdq{}data/glmmth/GLMc\PYZus{}th\PYZus{}*.nc\PYZdq{}))}
+\PY{c+c1}{\PYZsh{} earthaccess.login(strategy=\PYZdq{}interactive\PYZdq{}, persist=True)}
+
+\PY{c+c1}{\PYZsh{} results = earthaccess.search\PYZus{}data(}
+\PY{c+c1}{\PYZsh{}     short\PYZus{}name=\PYZdq{}glmmth\PYZdq{},   }
+\PY{c+c1}{\PYZsh{}     temporal=(\PYZdq{}2019\PYZhy{}01\PYZhy{}01\PYZdq{}, \PYZdq{}2020\PYZhy{}12\PYZhy{}31\PYZdq{}),}
+\PY{c+c1}{\PYZsh{} )}
+\PY{c+c1}{\PYZsh{} files = earthaccess.download(results, \PYZdq{}work/Project2/data\PYZdq{})}
+\end{Verbatim}
+\end{tcolorbox}
+
+    \begin{tcolorbox}[breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground, colframe=cellborder]
+\prompt{In}{incolor}{2}{\boxspacing}
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c+c1}{\PYZsh{} For each file, promotes lat/lon to real coordinates and crops to CONUS, then sums each year\PYZsq{}s 12 monthly slices and adds both years together into }
+\PY{c+c1}{\PYZsh{} one cumulative thunder\PYZhy{}hours grid}
+
+\PY{c+c1}{\PYZsh{} Gridded because \PYZdq{}thunder hour\PYZdq{} is a binning concept by definition, and because it merges detections from instruments with different viewing geometries }
+\PY{c+c1}{\PYZsh{} (both satellites, and more broadly ground networks) onto one common reference frame}
+
+\PY{c+c1}{\PYZsh{} lat is 520 values, lon is 1180 values, and total is 1180×520 — like a spreadsheet: lat gives the row headers, lon gives the column headers, and cell }
+\PY{c+c1}{\PYZsh{} total[i, j] is the thunder\PYZhy{}hour count}
+
+\PY{k+kn}{import} \PY{n+nn}{glob}
+\PY{k+kn}{import} \PY{n+nn}{xarray} \PY{k}{as} \PY{n+nn}{xr}
+
+\PY{n}{files} \PY{o}{=} \PY{n+nb}{sorted}\PY{p}{(}\PY{n}{glob}\PY{o}{.}\PY{n}{glob}\PY{p}{(}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{data/glmmth/GLMc\PYZus{}th\PYZus{}*.nc}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}\PY{p}{)}
+
+\PY{k}{def} \PY{n+nf}{load\PYZus{}and\PYZus{}crop}\PY{p}{(}\PY{n}{path}\PY{p}{)}\PY{p}{:}
+    \PY{n}{ds} \PY{o}{=} \PY{n}{xr}\PY{o}{.}\PY{n}{open\PYZus{}dataset}\PY{p}{(}\PY{n}{path}\PY{p}{)}
+    \PY{c+c1}{\PYZsh{} lat/lon are plain data variables here, not indexed coordinates —}
+    \PY{c+c1}{\PYZsh{} promote them so .sel() can crop by actual lat/lon values}
+    \PY{n}{ds} \PY{o}{=} \PY{n}{ds}\PY{o}{.}\PY{n}{assign\PYZus{}coords}\PY{p}{(}\PY{n}{lat}\PY{o}{=}\PY{p}{(}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{nlat}\PY{l+s+s2}{\PYZdq{}}\PY{p}{,} \PY{n}{ds}\PY{o}{.}\PY{n}{lat}\PY{o}{.}\PY{n}{values}\PY{p}{)}\PY{p}{,} \PY{n}{lon}\PY{o}{=}\PY{p}{(}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{nlon}\PY{l+s+s2}{\PYZdq{}}\PY{p}{,} \PY{n}{ds}\PY{o}{.}\PY{n}{lon}\PY{o}{.}\PY{n}{values}\PY{p}{)}\PY{p}{)}
+    \PY{n}{ds} \PY{o}{=} \PY{n}{ds}\PY{o}{.}\PY{n}{swap\PYZus{}dims}\PY{p}{(}\PY{p}{\PYZob{}}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{nlat}\PY{l+s+s2}{\PYZdq{}}\PY{p}{:} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{lat}\PY{l+s+s2}{\PYZdq{}}\PY{p}{,} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{nlon}\PY{l+s+s2}{\PYZdq{}}\PY{p}{:} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{lon}\PY{l+s+s2}{\PYZdq{}}\PY{p}{\PYZcb{}}\PY{p}{)}
+
+    \PY{c+c1}{\PYZsh{} handle either latitude ordering (ascending or descending)}
+    \PY{n}{lat\PYZus{}vals} \PY{o}{=} \PY{n}{ds}\PY{o}{.}\PY{n}{lat}\PY{o}{.}\PY{n}{values}
+    \PY{n}{lat\PYZus{}slice} \PY{o}{=} \PY{n+nb}{slice}\PY{p}{(}\PY{l+m+mi}{24}\PY{p}{,} \PY{l+m+mi}{50}\PY{p}{)} \PY{k}{if} \PY{n}{lat\PYZus{}vals}\PY{p}{[}\PY{l+m+mi}{0}\PY{p}{]} \PY{o}{\PYZlt{}} \PY{n}{lat\PYZus{}vals}\PY{p}{[}\PY{o}{\PYZhy{}}\PY{l+m+mi}{1}\PY{p}{]} \PY{k}{else} \PY{n+nb}{slice}\PY{p}{(}\PY{l+m+mi}{50}\PY{p}{,} \PY{l+m+mi}{24}\PY{p}{)}
+
+    \PY{k}{return} \PY{n}{ds}\PY{o}{.}\PY{n}{sel}\PY{p}{(}\PY{n}{lat}\PY{o}{=}\PY{n}{lat\PYZus{}slice}\PY{p}{,} \PY{n}{lon}\PY{o}{=}\PY{n+nb}{slice}\PY{p}{(}\PY{o}{\PYZhy{}}\PY{l+m+mi}{125}\PY{p}{,} \PY{o}{\PYZhy{}}\PY{l+m+mi}{66}\PY{p}{)}\PY{p}{)}
+
+\PY{n}{datasets} \PY{o}{=} \PY{p}{[}\PY{n}{load\PYZus{}and\PYZus{}crop}\PY{p}{(}\PY{n}{f}\PY{p}{)} \PY{k}{for} \PY{n}{f} \PY{o+ow}{in} \PY{n}{files}\PY{p}{]}
+
+\PY{c+c1}{\PYZsh{} If range assumptions above don\PYZsq{}t match this file and need adjusting}
+\PY{n+nb}{print}\PY{p}{(}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{Cropped shape:}\PY{l+s+s2}{\PYZdq{}}\PY{p}{,} \PY{n}{datasets}\PY{p}{[}\PY{l+m+mi}{0}\PY{p}{]}\PY{o}{.}\PY{n}{thunder\PYZus{}hours}\PY{o}{.}\PY{n}{shape}\PY{p}{)}
+
+\PY{c+c1}{\PYZsh{} sum each file\PYZsq{}s 12 months, then sum both years together}
+\PY{n}{total} \PY{o}{=} \PY{n+nb}{sum}\PY{p}{(}\PY{n}{ds}\PY{o}{.}\PY{n}{thunder\PYZus{}hours}\PY{o}{.}\PY{n}{sum}\PY{p}{(}\PY{n}{dim}\PY{o}{=}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{nmon}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)} \PY{k}{for} \PY{n}{ds} \PY{o+ow}{in} \PY{n}{datasets}\PY{p}{)}
+
+\PY{n+nb}{print}\PY{p}{(}\PY{n}{total}\PY{p}{)}
+\end{Verbatim}
+\end{tcolorbox}
+
+    \begin{Verbatim}[commandchars=\\\{\}]
+Cropped shape: (1180, 520, 12)
+<xarray.DataArray 'thunder\_hours' (lon: 1180, lat: 520)>
+array([[ 11,  10,   9, {\ldots},   0,   0,   0],
+       [ 16,  14,  12, {\ldots},   0,   0,   0],
+       [ 21,  17,  16, {\ldots},   0,   0,   0],
+       {\ldots},
+       [ 14,  16,  17, {\ldots}, 184, 181, 182],
+       [ 19,  17,  16, {\ldots}, 180, 185, 197],
+       [ 20,  18,  16, {\ldots}, 183, 191, 195]])
+Coordinates:
+  * lat      (lat) float32 49.97 49.92 49.88 49.83 {\ldots} 24.17 24.12 24.08 24.02
+  * lon      (lon) float32 -125.0 -124.9 -124.9 -124.8 {\ldots} -66.12 -66.07 -66.03
+    \end{Verbatim}
+
+    \begin{tcolorbox}[breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground, colframe=cellborder]
+\prompt{In}{incolor}{3}{\boxspacing}
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c+c1}{\PYZsh{} counts of each fuel class per polygon}
+\PY{k+kn}{import} \PY{n+nn}{os}
+\PY{k+kn}{import} \PY{n+nn}{geopandas} \PY{k}{as} \PY{n+nn}{gpd}
+\PY{k+kn}{import} \PY{n+nn}{pandas} \PY{k}{as} \PY{n+nn}{pd}
+
+\PY{n}{cache\PYZus{}path} \PY{o}{=} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{data/processed/fire\PYZus{}natural\PYZus{}2019\PYZus{}2020.gpkg}\PY{l+s+s2}{\PYZdq{}}
+
+\PY{k}{if} \PY{n}{os}\PY{o}{.}\PY{n}{path}\PY{o}{.}\PY{n}{exists}\PY{p}{(}\PY{n}{cache\PYZus{}path}\PY{p}{)}\PY{p}{:}
+    \PY{n}{fire} \PY{o}{=} \PY{n}{gpd}\PY{o}{.}\PY{n}{read\PYZus{}file}\PY{p}{(}\PY{n}{cache\PYZus{}path}\PY{p}{)}
+\PY{k}{else}\PY{p}{:}
+    \PY{n}{fire} \PY{o}{=} \PY{n}{gpd}\PY{o}{.}\PY{n}{read\PYZus{}file}\PY{p}{(}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{data/processed/fire\PYZus{}occurrence\PYZus{}albers.gpkg}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}
+
+    \PY{n}{fire}\PY{p}{[}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{DISCOVERY\PYZus{}DATE}\PY{l+s+s2}{\PYZdq{}}\PY{p}{]} \PY{o}{=} \PY{n}{pd}\PY{o}{.}\PY{n}{to\PYZus{}datetime}\PY{p}{(}\PY{n}{fire}\PY{p}{[}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{DISCOVERY\PYZus{}DATE}\PY{l+s+s2}{\PYZdq{}}\PY{p}{]}\PY{p}{)}
+    \PY{n}{fire} \PY{o}{=} \PY{n}{fire}\PY{p}{[}
+        \PY{p}{(}\PY{n}{fire}\PY{p}{[}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{NWCG\PYZus{}CAUSE\PYZus{}CLASSIFICATION}\PY{l+s+s2}{\PYZdq{}}\PY{p}{]} \PY{o}{==} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{Natural}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}
+        \PY{o}{\PYZam{}} \PY{p}{(}\PY{n}{fire}\PY{p}{[}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{DISCOVERY\PYZus{}DATE}\PY{l+s+s2}{\PYZdq{}}\PY{p}{]} \PY{o}{\PYZgt{}}\PY{o}{=} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{2019\PYZhy{}02\PYZhy{}12}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}
+        \PY{o}{\PYZam{}} \PY{p}{(}\PY{n}{fire}\PY{p}{[}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{DISCOVERY\PYZus{}DATE}\PY{l+s+s2}{\PYZdq{}}\PY{p}{]} \PY{o}{\PYZlt{}}\PY{o}{=} \PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{2020\PYZhy{}12\PYZhy{}31}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}
+    \PY{p}{]}
+
+    \PY{n}{fire}\PY{o}{.}\PY{n}{to\PYZus{}file}\PY{p}{(}\PY{n}{cache\PYZus{}path}\PY{p}{,} \PY{n}{driver}\PY{o}{=}\PY{l+s+s2}{\PYZdq{}}\PY{l+s+s2}{GPKG}\PY{l+s+s2}{\PYZdq{}}\PY{p}{)}
+\end{Verbatim}
+\end{tcolorbox}
+
+    \begin{tcolorbox}[breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground, colframe=cellborder]
+\prompt{In}{incolor}{4}{\boxspacing}
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nb}{print}\PY{p}{(}\PY{n}{fire}\PY{o}{.}\PY{n}{head}\PY{p}{(}\PY{p}{)}\PY{p}{)}
+\end{Verbatim}
+\end{tcolorbox}
+
+    \begin{Verbatim}[commandchars=\\\{\}]
+         OBJECTID     FOD\_ID      FPA\_ID SOURCE\_SYSTEM\_TYPE SOURCE\_SYSTEM  \textbackslash{}
+2166748   2166749  400500002  FS-6955822                FED   FS-FIRESTAT
+2166749   2166750  400500003  FS-6936597                FED   FS-FIRESTAT
+2166751   2166752  400500005  FS-6955006                FED   FS-FIRESTAT
+2166752   2166753  400500006  FS-6947814                FED   FS-FIRESTAT
+2166753   2166754  400500007  FS-6957509                FED   FS-FIRESTAT
+
+        NWCG\_REPORTING\_AGENCY NWCG\_REPORTING\_UNIT\_ID  \textbackslash{}
+2166748                    FS                USMTKNF
+2166749                    FS                USMTKNF
+2166751                    FS                USMTKNF
+2166752                    FS                USMTKNF
+2166753                    FS                USMTHLF
+
+                         NWCG\_REPORTING\_UNIT\_NAME SOURCE\_REPORTING\_UNIT  \textbackslash{}
+2166748                  Kootenai National Forest                  0114
+2166749                  Kootenai National Forest                  0114
+2166751                  Kootenai National Forest                  0114
+2166752                  Kootenai National Forest                  0114
+2166753  Helena - Lewis and Clark National Forest                  0115
+
+                       SOURCE\_REPORTING\_UNIT\_NAME  {\ldots} FIRE\_SIZE  \textbackslash{}
+2166748                  Kootenai National Forest  {\ldots}       0.1
+2166749                  Kootenai National Forest  {\ldots}       0.6
+2166751                  Kootenai National Forest  {\ldots}       0.1
+2166752                  Kootenai National Forest  {\ldots}       0.1
+2166753  Helena - Lewis and Clark National Forest  {\ldots}       0.1
+
+        FIRE\_SIZE\_CLASS   LATITUDE   LONGITUDE OWNER\_DESCR STATE COUNTY  \textbackslash{}
+2166748               A  48.882222 -115.020556     PRIVATE    MT    053
+2166749               B  48.484167 -115.258056        USFS    MT    053
+2166751               A  48.457500 -115.913333        USFS    MT    053
+2166752               A  48.647778 -114.830556        USFS    MT    029
+2166753               A  46.913333 -112.488889        USFS    MT    049
+
+        FIPS\_CODE               FIPS\_NAME                          geometry
+2166748     30053          Lincoln County  POINT (-1402356.177 3016090.463)
+2166749     30053          Lincoln County  POINT (-1428438.760 2976734.126)
+2166751     30053          Lincoln County  POINT (-1476952.178 2983877.638)
+2166752     30029         Flathead County  POINT (-1393606.561 2988029.143)
+2166753     30049  Lewis and Clark County  POINT (-1255217.511 2767266.359)
+
+[5 rows x 39 columns]
+    \end{Verbatim}
+
+    \begin{Verbatim}[commandchars=\\\{\}, frame=single, framerule=2mm, rulecolor=\color{outerrorbackground}]
+\textcolor{ansi-red}{---------------------------------------------------------------------------}
+\textcolor{ansi-red}{NameError}                                 Traceback (most recent call last)
+Cell \textcolor{ansi-green}{In[4], line 2}
+\textcolor{ansi-green-intense}{\textbf{      1}} \def\tcRGB{\textcolor[RGB]}\expandafter\tcRGB\expandafter{\detokenize{0,135,0}}{print}(fire\def\tcRGB{\textcolor[RGB]}\expandafter\tcRGB\expandafter{\detokenize{98,98,98}}{.}head())
+\textcolor{ansi-green}{----> 2} \def\tcRGB{\textcolor[RGB]}\expandafter\tcRGB\expandafter{\detokenize{0,135,0}}{print}(\setlength{\fboxsep}{0pt}\colorbox{ansi-yellow}{ecoregions\strut}\def\tcRGB{\textcolor[RGB]}\expandafter\tcRGB\expandafter{\detokenize{98,98,98}}{.}head())
+
+\textcolor{ansi-red}{NameError}: name 'ecoregions' is not defined
+    \end{Verbatim}
+
+
+    % Add a bibliography block to the postdoc
+    
+    
+    
+\end{document}
