@@ -4,6 +4,11 @@ norton-root-ca.crt
 # Jupyter
 .ipynb_checkpoints/
 
+# Notebooks are jupytext-paired with a .py:percent file, which is what's
+# tracked (clean diffs, no embedded outputs/execution counts). Run
+# `jupytext --to notebook <name>.py` to regenerate your local .ipynb.
+*.ipynb
+
 # Credentials - should never live in this repo
 *.netrc
 .netrc

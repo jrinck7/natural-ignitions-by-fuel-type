@@ -72,7 +72,8 @@ USER jovyan
 RUN /opt/conda/envs/gds/bin/python -m pip install --no-cache-dir \
         --cert /etc/ssl/certs/ca-certificates.crt \
         "numpy>=1.24,<1.25" \
-        earthaccess
+        earthaccess \
+        jupytext
 
 # Lets Start-Project2 supply Earthdata credentials from the host without baking
 # them into the image (see the script for why it is a copy, not a direct mount).
