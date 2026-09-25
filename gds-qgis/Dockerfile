@@ -7,24 +7,6 @@ FROM darribas/gds:10.0@sha256:3d1ea1df436f0790052cd768838e82b1b5c7e8f659e0bf9e9e
 
 USER root
 
-RUN apt-get update && apt-get install -y \
-    qgis python3-qgis python3-pip \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# QGIS's Python bindings are installed against the system Python (apt),
-# not the conda env Jupyter normally uses (different Python versions,
-# so the compiled bindings can't be imported across envs). Register the
-# system Python as its own Jupyter kernel instead.
-RUN /usr/bin/python3 -m pip install --no-cache-dir ipykernel && \
-    /usr/bin/python3 -m ipykernel install --prefix=/usr/local \
-        --name qgis-py3 --display-name "Python 3 (QGIS)"
-
-# The base image's JupyterLab config hardcodes a kernel whitelist that
-# would otherwise hide qgis-py3 from the kernel picker.
-RUN sed -i \
-    "s/c.KernelSpecManager.whitelist = {'gds', 'ir'}/c.KernelSpecManager.whitelist = {'gds', 'ir', 'qgis-py3'}/" \
-    /home/jovyan/.jupyter/jupyter_lab_config.py
-
 # The gds kernel.json launches /opt/conda/envs/gds/bin/python directly via
 # ipykernel_launcher, bypassing `conda activate`. That means the
 # PROJ_DATA/PROJ_NETWORK env vars normally set by
