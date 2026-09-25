@@ -1,0 +1,13 @@
+# Machine-specific TLS interception workaround - never commit this
+norton-root-ca.crt
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Credentials - should never live in this repo
+*.netrc
+.netrc
+
+__pycache__/
+data/
+outputs/
