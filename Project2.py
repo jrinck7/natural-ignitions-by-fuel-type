@@ -19,11 +19,14 @@
 # %% [markdown]
 # ## Research Question: 
 # Between 2018 and 2020, does the rate at which lightning strikes convert into wildfire ignitions vary by fuel type across the ecoregions of the contiguous United States, independent of raw lightning exposure?
+#
+# ##### Revised Research Question:
+# Between 1992 and 2024, how are naturally occuring wildfires distributed across ecoregions and what fuel-types during this time period account for the most natural ignitions? 
 
 # %% [markdown]
 # # Data:
 #
-# 1. [Spatial wildfire occurrence data for the United States, 1992-2020 (6th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.6)
+# 1. [Spatial wildfire occurrence data for the United States, 1992-2020 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
 #    - Federal, State and Local fire data aggreagated
 #    - Discovery date, final fire size, point location (1 sq mile accuracy), wildfire-cause
 #    - 2.3 million geo-referenced wildfire records
@@ -82,82 +85,185 @@
 # - Ecoregions colored by their ignition-to-thunder-hour ratio
 # - Create a map that displays the areas with the most lightning cause wildfire ignitions 
 
-# %% [markdown]
-# ![](../Project2/Project2_OverviewofData.png)
-
 # %%
-# # %pip install earthaccess
-# import earthaccess
-#import glob
+# import libraries
 
-#files = sorted(glob.glob("data/glmmth/GLMc_th_*.nc"))
-# earthaccess.login(strategy="interactive", persist=True)
-
-# results = earthaccess.search_data(
-#     short_name="glmmth",   
-#     temporal=("2019-01-01", "2020-12-31"),
-# )
-# files = earthaccess.download(results, "work/Project2/data")
-
-# %%
-# For each file, promotes lat/lon to real coordinates and crops to CONUS, then sums each year's 12 monthly slices and adds both years together into 
-# one cumulative thunder-hours grid
-
-# Gridded because "thunder hour" is a binning concept by definition, and because it merges detections from instruments with different viewing geometries 
-# (both satellites, and more broadly ground networks) onto one common reference frame
-
-# lat is 520 values, lon is 1180 values, and total is 1180×520 — like a spreadsheet: lat gives the row headers, lon gives the column headers, and cell 
-# total[i, j] is the thunder-hour count
-
-import glob
-import xarray as xr
-
-files = sorted(glob.glob("data/glmmth/GLMc_th_*.nc"))
-
-def load_and_crop(path):
-    ds = xr.open_dataset(path)
-    # lat/lon are plain data variables here, not indexed coordinates —
-    # promote them so .sel() can crop by actual lat/lon values
-    ds = ds.assign_coords(lat=("nlat", ds.lat.values), lon=("nlon", ds.lon.values))
-    ds = ds.swap_dims({"nlat": "lat", "nlon": "lon"})
-
-    # handle either latitude ordering (ascending or descending)
-    lat_vals = ds.lat.values
-    lat_slice = slice(24, 50) if lat_vals[0] < lat_vals[-1] else slice(50, 24)
-
-    return ds.sel(lat=lat_slice, lon=slice(-125, -66))
-
-datasets = [load_and_crop(f) for f in files]
-
-# If range assumptions above don't match this file and need adjusting
-print("Cropped shape:", datasets[0].thunder_hours.shape)
-
-# sum each file's 12 months, then sum both years together
-total = sum(ds.thunder_hours.sum(dim="nmon") for ds in datasets)
-
-print(total)
-
-# %%
-# counts of each fuel class per polygon
 import os
 import geopandas as gpd
 import pandas as pd
+import numpy as np
+import rasterio
+from IPython.display import display
+from rasterio.transform import from_origin
+from rasterio.warp import reproject
+from rasterio.enums import Resampling
 
-cache_path = "data/processed/fire_natural_2019_2020.gpkg"
 
-if os.path.exists(cache_path):
-    fire = gpd.read_file(cache_path)
-else:
-    fire = gpd.read_file("data/processed/fire_occurrence_albers.gpkg")
+from pathlib import Path
+DATA_DIR = Path("data")
 
-    fire["DISCOVERY_DATE"] = pd.to_datetime(fire["DISCOVERY_DATE"])
-    fire = fire[
-        (fire["NWCG_CAUSE_CLASSIFICATION"] == "Natural")
-        & (fire["DISCOVERY_DATE"] >= "2019-02-12")
-        & (fire["DISCOVERY_DATE"] <= "2020-12-31")
-    ]
 
-    fire.to_file(cache_path, driver="GPKG")
+# %% [markdown]
+# ## Reprojections for Analysis and Geographic Alignment 
+#
+# ##### Projection: EPSG:5070 — NAD83 / Conus Albers Equal Area Conic
+# - Albers is an equal-area projection that preserves area accuarcy for CONUS
+# - Minimal distortion for CONUS
+# - Well-suited for regional comparisons
+#
 
 # %%
-print(fire.head())
+# Fire occurrence (7th edition, reprojected to Albers)
+# Cache paths so we don't have to recompute everytime we open a the notebook
+fire_cache_path = DATA_DIR / "processed/fire_occurrence_7th_albers.gpkg"
+
+if fire_cache_path.exists():
+    fire = gpd.read_file(fire_cache_path)
+else:
+    fire = gpd.read_file(DATA_DIR / "FPA_FOD/FPA_FOD_20260615.gpkg")
+    fire = fire.to_crs("EPSG:5070")
+    fire.to_file(fire_cache_path, driver="GPKG")
+
+# Fuel type raster (already in EPSG:5070 — no reprojection needed)
+fuelClass = rasterio.open(DATA_DIR / "LF2020_FBFM40_CONUS/Tif/LF2020_FBFM40_CONUS.tif")
+
+# Ecoregions (reprojected + dissolved to one polygon per ecoregion)
+# Dissolve ecoregions because the downloaded shapefiles split ecoregion polygons at state-lines
+ecoregion_cache_path = DATA_DIR / "processed/ecoregions_l3_albers_nb.gpkg"
+
+if ecoregion_cache_path.exists():
+    ecoregion = gpd.read_file(ecoregion_cache_path)
+else:
+    ecoregion = gpd.read_file(DATA_DIR / "ecoregions/us_eco_l3_state_boundaries.shp")
+    ecoregion = ecoregion.to_crs("EPSG:5070")
+    # Dissolve on the ecoregion identifier
+    ecoregion = ecoregion.dissolve(by="US_L3CODE", as_index=False)
+    ecoregion.to_file(ecoregion_cache_path, driver="GPKG")
+
+# %%
+# Look at the datasets to identify what needs to be cleaned
+print("Fire Occurrence")
+pd.set_option('display.max_columns', None)
+display(fire.head(10))
+
+print("Ecoregions")
+display(ecoregion.head(10))
+
+print("Fuel Model Classes (LANDFIRE attribute table)")
+fuel_lookup = pd.read_csv(DATA_DIR / "LF2020_FBFM40_CONUS/CSV_Data/LF2020_FBFM40.csv")
+display(fuel_lookup.head(10))
+
+# %%
+# Check each dataset for empty/NaN values
+print(fire.isnull().sum())
+print(ecoregion.isnull().sum())
+print(fuel_lookup.isnull().sum())
+
+# %%
+# Simplify the Fire Occurance Dataset to suit the needs of the analysis
+# Cleaned data is free of empty/NaN values
+fire_clean = fire[[
+    "FIRE_YEAR", "DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION",
+    "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "STATE", "geometry"
+]].copy()
+
+# Look at new dataframe
+display(fire_clean.head(10))
+
+
+# %%
+fire_fuel_cache_path = DATA_DIR / "processed/natural_fire_fuel_ecoregion.gpkg"
+
+if fire_fuel_cache_path.exists():
+    fire_fuel = gpd.read_file(fire_fuel_cache_path)
+# Only look at naturally caused fires
+else:
+    natural_fire = fire[fire["NWCG_CAUSE_CLASSIFICATION"] == "Natural"].copy()
+
+    # Build a list of x,y pairs of point geom for natural fires
+    coords = [(geom.x, geom.y) for geom in natural_fire.geometry]
+    # Look up the rasters pixel by coords (val[0] removes the raterio wrapper and returns an int to the new col FUEL_CLASS to natural_fire
+    natural_fire["FUEL_CLASS"] = [val[0] for val in fuelClass.sample(coords)]
+
+    # Spatial join tags each fire WITHIN its containing ecoregion
+    # geopandas spatial join matches rows based on geom
+    fire_fuel = gpd.sjoin(natural_fire, ecoregion, how="left", predicate="within")
+
+    fire_fuel.to_file(fire_fuel_cache_path, driver="GPKG")
+
+# Raw ignition counts per ecoregion / fuel type combination
+counts = fire_fuel.groupby(["US_L3NAME", "FUEL_CLASS"]).size().reset_index(name="ignition_count")
+print(counts)
+
+# %%
+# ---- Majority fuel class per grid cell ----
+# Builds a coarse grid over CONUS where each cell stores the most common fuel class
+# found inside it, so density values can later be grouped by fuel class.
+
+cell_size = 10_000  # grid cell width/height in meters (EPSG:5070 units) - I don't know if this is the right size...we could definitely adjust this
+
+# Grid extent = bounding box of the ecoregions (i.e., CONUS)
+xmin, ymin, xmax, ymax = ecoregion.total_bounds
+
+# Columns/rows needed to cover that box; ceil so the far edges aren't cut off
+ncols = int(np.ceil((xmax - xmin) / cell_size))
+nrows = int(np.ceil((ymax - ymin) / cell_size))
+
+# Affine transform: ties grid row/column positions to real-world coordinates.
+grid_transform = from_origin(xmin, ymax, cell_size, cell_size)
+
+# Cell size is in the filename, so changing it never reuses a stale cached array
+fuel_mode_cache_path = DATA_DIR / f"processed/fuel_mode_{cell_size // 1000}km.npy"
+
+if fuel_mode_cache_path.exists():
+    fuel_mode = np.load(fuel_mode_cache_path)  # reuse the saved array
+else:
+    # Empty grid to fill, pre-set to the nodata value
+    fuel_mode = np.full((nrows, ncols), -9999, dtype="int16")
+
+    # Resample the 30 m fuel raster onto the coarse grid.
+    # Resampling.mode: each cell gets the most common fuel code among the pixels inside it
+    reproject(
+        source=rasterio.band(fuelClass, 1),  # band 1 = fuel model codes
+        destination=fuel_mode,               # array the results are written into
+        dst_transform=grid_transform,        # where the grid sits in the world
+        dst_crs="EPSG:5070",                 # same CRS as the source: regridding only, no reprojection
+        src_nodata=-9999,                    # ignore nodata pixels in the source
+        dst_nodata=-9999,                    # cells with no valid pixels stay -9999
+        resampling=Resampling.mode,
+    )
+    np.save(fuel_mode_cache_path, fuel_mode)  # slow step runs once, then it's cached
+
+# %%
+# ============================================================
+# LIGHTNING DATA — on hold and ready to uncomment when revisited
+# ============================================================
+
+# --- Acquisition (already run once; files already exist locally) ---
+# # %pip install earthaccess
+# import earthaccess
+
+# earthaccess.login(strategy="interactive", persist=True)
+
+# results = earthaccess.search_data(
+#     short_name="glmmth",
+#     temporal=("2019-01-01", "2024-12-31"),
+# )
+# files = earthaccess.download(results, "work/Project2/data")
+
+# --- Processing: crop each file to CONUS, sum 12 months, sum both years ---
+# import glob
+# import xarray as xr
+
+# files = sorted(glob.glob(str(DATA_DIR / "glmmth/GLMc_th_*.nc")))
+
+# def load_and_crop(path):
+#     ds = xr.open_dataset(path)
+#     ds = ds.assign_coords(lat=("nlat", ds.lat.values), lon=("nlon", ds.lon.values))
+#     ds = ds.swap_dims({"nlat": "lat", "nlon": "lon"})
+#     lat_vals = ds.lat.values
+#     lat_slice = slice(24, 50) if lat_vals[0] < lat_vals[-1] else slice(50, 24)
+#     return ds.sel(lat=lat_slice, lon=slice(-125, -66))
+
+# datasets = [load_and_crop(f) for f in files]
+# lightning = sum(ds.thunder_hours.sum(dim="nmon") for ds in datasets)
