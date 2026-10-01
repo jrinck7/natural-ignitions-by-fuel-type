@@ -32,3 +32,6 @@ data.zip
 /*.out
 pdfs/*.tex
 pdfs/*_files/
+
+# Personal Claude Code settings
+.claude/settings.local.json
