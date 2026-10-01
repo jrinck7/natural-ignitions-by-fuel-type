@@ -4,12 +4,12 @@
 # Same workflow as Project 1 (rebuild_pdf_zero_margins + fix_title):
 #   nbconvert -> LaTeX -> set page margins -> fix the title -> xelatex x3
 #
-# Run from anywhere:   bash build_pdf.sh
+# Run from anywhere:   bash scripts/build_pdf.sh
 # Output:              pdfs/Project2.pdf
 #
 # Notes:
 # - nbconvert does NOT re-run your notebook. It uses the outputs saved in
-#   Project2.ipynb, so run the notebook and save it (Ctrl+S) first.
+#   notebooks/Project2.ipynb, so run the notebook and save it (Ctrl+S) first.
 # - Needs xelatex (TeX Live) on whatever machine/container you run this in.
 
 set -euo pipefail
@@ -18,24 +18,25 @@ set -euo pipefail
 NOTEBOOK="Project2"                                                  # notebook name, no extension
 MARGIN="0.5in"                                                       # page margin on all four sides
 TITLE="Project 2: Natural Wildfire Ignitions by Ecoregion and Fuel Type"
+NB_DIR="notebooks"                                                   # folder holding the notebook
 OUTDIR="pdfs"                                                        # where the .tex / .pdf are written
 HEADING_ID="project-2-launch"                                        # id of the notebook's first "# ..." heading (removed so it isn't repeated under the title)
 # --------------------------------------------
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # repo root
 
 # Checks
 command -v jupyter  >/dev/null || { echo "jupyter not found."; exit 1; }
 command -v xelatex  >/dev/null || { echo "xelatex not found. Install TeX Live, or run this where Project 1 was built."; exit 1; }
-if [ ! -f "${NOTEBOOK}.ipynb" ]; then
-  echo "${NOTEBOOK}.ipynb not found. Regenerate it with: jupytext --to notebook ${NOTEBOOK}.py"
+if [ ! -f "${NB_DIR}/${NOTEBOOK}.ipynb" ]; then
+  echo "${NB_DIR}/${NOTEBOOK}.ipynb not found. Regenerate it with: jupytext --to notebook ${NB_DIR}/${NOTEBOOK}.py"
   exit 1
 fi
 
 mkdir -p "$OUTDIR"
 
 # 1) Notebook -> LaTeX (figures are extracted to ${OUTDIR}/${NOTEBOOK}_files/)
-jupyter nbconvert --to latex "${NOTEBOOK}.ipynb" --output-dir "$OUTDIR"
+jupyter nbconvert --to latex "${NB_DIR}/${NOTEBOOK}.ipynb" --output-dir "$OUTDIR"
 
 cd "$OUTDIR"
 
@@ -63,9 +64,9 @@ if n == 0:
     print("Warning: first-heading block not found. If you renamed the notebook's "
           "top heading, update HEADING_ID in build_pdf.sh.", file=sys.stderr)
 
-# The .tex is compiled inside pdfs/, but markdown images in the notebook point
-# at images/... relative to the repo root. Search the parent folder too so
-# those figures are found (cell-output figures in pdfs/Project2_files/ still
+# The .tex is compiled inside pdfs/. Markdown images in the notebook point at
+# ../images/..., which also resolves from pdfs/. Search the parent folder too so
+# figures are found (cell-output figures in pdfs/Project2_files/ still
 # resolve from ./).
 tex = tex.replace("\\begin{document}", "\\graphicspath{{./}{../}}\n\\begin{document}", 1)
 

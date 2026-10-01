@@ -1,8 +1,8 @@
 {
     "name": "gds-project2",
     "build": {
-        "dockerfile": "../Dockerfile",
-        "context": "..",
+        "dockerfile": "Dockerfile",
+        "context": ".",
         "args": {
             "NORTON_TLS_FIX": "false"
         }

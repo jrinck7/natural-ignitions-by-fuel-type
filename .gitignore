@@ -31,6 +31,7 @@ data.zip
 /*.log
 /*.out
 pdfs/*.tex
+pdfs/Project2.pdf
 pdfs/*_files/
 
 # Personal Claude Code settings

@@ -102,7 +102,7 @@ import matplotlib.pyplot as plt
 
 
 from pathlib import Path
-DATA_DIR = Path("data")
+DATA_DIR = Path("../data")
 
 
 # %% [markdown]
@@ -292,10 +292,10 @@ ax.set_axis_off()
 plt.show()
 
 # %% [markdown]
-# ![](images/Project2_OverviewofData_FirebyFuelClass.png)
+# ![](../images/Project2_OverviewofData_FirebyFuelClass.png)
 
 # %% [markdown]
-# ![](images/Project2_OverviewofData_Legend.png)
+# ![](../images/Project2_OverviewofData_Legend.png)
 
 # %%
 # ============================================================

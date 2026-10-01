@@ -83,14 +83,14 @@
 # - Create a map that displays the areas with the most lightning cause wildfire ignitions 
 
 # %% [markdown]
-# ![](images/Project2_OverviewofData.png)
+# ![](../images/Project2_OverviewofData.png)
 
 # %%
 # # %pip install earthaccess
 # import earthaccess
 #import glob
 
-#files = sorted(glob.glob("data/glmmth/GLMc_th_*.nc"))
+#files = sorted(glob.glob("../data/glmmth/GLMc_th_*.nc"))
 # earthaccess.login(strategy="interactive", persist=True)
 
 # results = earthaccess.search_data(
@@ -112,7 +112,7 @@
 import glob
 import xarray as xr
 
-files = sorted(glob.glob("data/glmmth/GLMc_th_*.nc"))
+files = sorted(glob.glob("../data/glmmth/GLMc_th_*.nc"))
 assert files, "No GLM thunder-hour files found - check the data path"
 
 def load_and_crop(path):
@@ -144,12 +144,12 @@ import os
 import geopandas as gpd
 import pandas as pd
 
-cache_path = "data/processed/fire_natural_2019_2020.gpkg"
+cache_path = "../data/processed/fire_natural_2019_2020.gpkg"
 
 if os.path.exists(cache_path):
     fire = gpd.read_file(cache_path)
 else:
-    fire = gpd.read_file("data/processed/fire_occurrence_7th_albers.gpkg")
+    fire = gpd.read_file("../data/processed/fire_occurrence_7th_albers.gpkg")
 
     fire["DISCOVERY_DATE"] = pd.to_datetime(fire["DISCOVERY_DATE"])
     fire = fire[

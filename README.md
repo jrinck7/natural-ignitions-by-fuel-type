@@ -5,5 +5,5 @@ base image.
 
 ```
 docker build -t gds-qgis:latest ./gds-qgis
-docker build -t gds-project2 .
+docker build -t gds-project2 .devcontainer
 ```
