@@ -120,11 +120,19 @@ DATA_DIR = Path("../data")
 fire_cache_path = DATA_DIR / "processed/fire_occurrence_7th_albers.gpkg"
 
 if fire_cache_path.exists():
-    fire = gpd.read_file(fire_cache_path)
+    # Only load the columns the analysis uses (all 38 columns take ~4 GB of memory)
+    fire = gpd.read_file(fire_cache_path, engine="pyogrio", columns=[
+        "FIRE_YEAR", "DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION",
+        "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "STATE"])
 else:
     fire = gpd.read_file(DATA_DIR / "FPA_FOD/FPA_FOD_20260615.gpkg")
     fire = fire.to_crs("EPSG:5070")
     fire.to_file(fire_cache_path, driver="GPKG")
+
+# Smaller dtypes: repeated strings become categories, numbers get narrower types
+fire = fire.astype({"NWCG_CAUSE_CLASSIFICATION": "category",
+                    "NWCG_GENERAL_CAUSE": "category", "STATE": "category",
+                    "FIRE_YEAR": "int16", "FIRE_SIZE": "float32"})
 
 # Fuel type raster (already in EPSG:5070 — no reprojection needed)
 fuelClass = rasterio.open(DATA_DIR / "LF2020_FBFM40_CONUS/Tif/LF2020_FBFM40_CONUS.tif")
@@ -164,10 +172,7 @@ print(fuel_lookup.isnull().sum())
 # %%
 # Simplify the Fire Occurance Dataset to suit the needs of the analysis
 # Cleaned data is free of empty/NaN values
-fire_clean = fire[[
-    "FIRE_YEAR", "DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION",
-    "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "STATE", "geometry"
-]].copy()
+fire_clean = fire  # already limited to these columns at load
 
 # Look at new dataframe
 display(fire_clean.head(10))
@@ -177,7 +182,9 @@ display(fire_clean.head(10))
 fire_fuel_cache_path = DATA_DIR / "processed/natural_fire_fuel_ecoregion.gpkg"
 
 if fire_fuel_cache_path.exists():
-    fire_fuel = gpd.read_file(fire_fuel_cache_path)
+    # Only the ecoregion and fuel columns are used below, so skip the rest and the geometry
+    fire_fuel = gpd.read_file(fire_fuel_cache_path, engine="pyogrio", ignore_geometry=True,
+        columns=["US_L3NAME", "US_L3CODE", "FUEL_CLASS"]).astype({"FUEL_CLASS": "int16"})
 # Only look at naturally caused fires
 else:
     natural_fire = fire[fire["NWCG_CAUSE_CLASSIFICATION"] == "Natural"].copy()
@@ -192,6 +199,7 @@ else:
     fire_fuel = gpd.sjoin(natural_fire, ecoregion, how="left", predicate="within")
 
     fire_fuel.to_file(fire_fuel_cache_path, driver="GPKG")
+    del natural_fire, coords
 
 # Clip fire points to the lower 48
 # The fire data covers all of the US, but the ecoregions only cover the lower 48.
@@ -202,6 +210,11 @@ fire_fuel = fire_fuel[fire_fuel["US_L3NAME"].notna()].copy()
 # Raw ignition counts per ecoregion / fuel type combination
 counts = fire_fuel.groupby(["US_L3NAME", "FUEL_CLASS"]).size().reset_index(name="ignition_count")
 print(counts)
+
+# Free the full fire table now that fire_fuel is built
+import gc
+del fire, fire_clean
+gc.collect()
 
 # %%
 # ---- Majority fuel class per grid cell ----

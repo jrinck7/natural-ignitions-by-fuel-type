@@ -149,7 +149,10 @@ cache_path = "../data/processed/fire_natural_2019_2020.gpkg"
 if os.path.exists(cache_path):
     fire = gpd.read_file(cache_path)
 else:
-    fire = gpd.read_file("../data/processed/fire_occurrence_7th_albers.gpkg")
+    # Filter to natural fires and needed columns while reading, instead of loading all 2.66M rows
+    fire = gpd.read_file("../data/processed/fire_occurrence_7th_albers.gpkg", engine="pyogrio",
+        where="NWCG_CAUSE_CLASSIFICATION = 'Natural'",
+        columns=["DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION", "FIRE_SIZE", "STATE"])
 
     fire["DISCOVERY_DATE"] = pd.to_datetime(fire["DISCOVERY_DATE"])
     fire = fire[
