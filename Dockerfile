@@ -82,6 +82,10 @@ COPY 10-earthdata-netrc.sh /usr/local/bin/before-notebook.d/10-earthdata-netrc.s
 RUN sed -i 's/\r$//' /usr/local/bin/before-notebook.d/10-earthdata-netrc.sh && \
     chmod 0755 /usr/local/bin/before-notebook.d/10-earthdata-netrc.sh
 
+# Pre-create the Claude Code config dir so a fresh named volume mounted here
+# inherits jovyan ownership instead of root.
+RUN mkdir -p /home/jovyan/.claude && chown jovyan:users /home/jovyan/.claude
+
 USER jovyan
 
 EXPOSE 8888

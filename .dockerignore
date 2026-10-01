@@ -1,0 +1,5 @@
+# Allowlist: send only what the Dockerfile COPYs. Keeps token.txt, data.zip,
+# and data/ out of the build context.
+*
+!10-earthdata-netrc.sh
+!norton-root-ca.crt

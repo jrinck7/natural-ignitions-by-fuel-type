@@ -21,3 +21,12 @@ outputs/
 pdfs/*.aux
 pdfs/*.log
 pdfs/*.out
+
+# Secrets and large local files
+token.txt
+data.zip
+
+# LaTeX build artifacts at the repo root
+/*.aux
+/*.log
+/*.out

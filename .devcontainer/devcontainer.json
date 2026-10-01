@@ -1,0 +1,26 @@
+{
+    "name": "gds-project2",
+    "image": "gds-project2:latest",
+    "remoteUser": "jovyan",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/jovyan/work,type=bind",
+    "workspaceFolder": "/home/jovyan/work",
+    "forwardPorts": [
+        8888
+    ],
+    "remoteEnv": {
+        "PATH": "${containerEnv:PATH}:/home/jovyan/.local/bin"
+    },
+    "postCreateCommand": "command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "anthropic.claude-code"
+            ]
+        }
+    },
+    "mounts": [
+        "source=claude-config,target=/home/jovyan/.claude,type=volume"
+    ]
+}
