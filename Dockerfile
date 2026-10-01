@@ -35,6 +35,8 @@ COPY norton-root-ca.cr[t] /usr/local/share/ca-certificates/norton-root-ca.crt
 # Norton's root is added to BOTH trust stores, which fixes two separate things:
 #   - /usr/local/share/ca-certificates -> the system store, used by apt/curl
 #   - certifi's cacert.pem             -> what pip AND earthaccess actually use
+# conda's ssl_verify and /etc/pip.conf are also pointed at the system store so
+# `conda install` and `pip install` keep working after the build.
 # The certifi half matters at RUNTIME, not just build time: earthaccess pulls
 # granules over https from NASA Earthdata, and it would hit the same error.
 RUN if [ "$NORTON_TLS_FIX" = "true" ]; then \
@@ -42,8 +44,15 @@ RUN if [ "$NORTON_TLS_FIX" = "true" ]; then \
         update-ca-certificates && \
         CERTIFI="$(/opt/conda/envs/gds/bin/python -c 'import certifi; print(certifi.where())')" && \
         printf '\n' >> "$CERTIFI" && \
-        cat /usr/local/share/ca-certificates/norton-root-ca.crt >> "$CERTIFI"; \
+        cat /usr/local/share/ca-certificates/norton-root-ca.crt >> "$CERTIFI" && \
+        /opt/conda/bin/conda config --system --set ssl_verify /etc/ssl/certs/ca-certificates.crt && \
+        printf '[global]\ncert = /etc/ssl/certs/ca-certificates.crt\n' > /etc/pip.conf; \
     fi
+# Point runtime tools at the system bundle too, so `pip install` and Python
+# HTTP clients inside a running container trust the same roots. Harmless when
+# the Norton fix is off: the bundle is then just the stock system CAs.
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 USER jovyan
 
