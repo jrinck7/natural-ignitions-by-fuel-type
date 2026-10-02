@@ -217,6 +217,81 @@ del fire, fire_clean
 gc.collect()
 
 # %%
+# Remove fires that fall in unburnable fuel types NB9 Barren, NB8 Open water, & NB2 Snow/ice, -9999 Fill-NoData
+
+# look up each fuel class that is unburnable
+is_unburnable = fuel_lookup["FBFM40"].isin(["NB2", "NB8", "NB9", "Fill-NoData"])
+# Assign the values of the unburnable fuel classes to unburnable
+unburnable = fuel_lookup.loc[is_unburnable, "VALUE"]
+
+# Drop unburnable fuel classes in the fire_fuel df
+dropped = fire_fuel["FUEL_CLASS"].isin(unburnable)
+
+# How many fires were dropped?
+print(f"Dropping {dropped.sum():,} of {len(fire_fuel):,} fires ({dropped.mean():.1%}) "
+      "on snow/ice, water, barren, or no-data fuel")
+print(fire_fuel.loc[dropped, "FUEL_CLASS"].value_counts())
+
+# This keeps the fires that were not flagged to be dropped and flips 
+# every true to false and false to true so true means keep (~ means not)
+fire_fuel = fire_fuel[~dropped].copy()
+
+# %%
+# Natural ignitions per ecoregion
+ignitions = fire_fuel.groupby("US_L3CODE").size()
+# Create a new col of ignitions per ecoregion
+ecoregion["ignitions"] = ecoregion["US_L3CODE"].map(ignitions).fillna(0)
+
+# .area is in meters squared - divide by 1e9 to get per 1,000 km squared
+# Create a new col that contains the normalized ignition data 
+ecoregion["ign_per_1000km2"] = ecoregion["ignitions"] / (ecoregion.area / 1e9)
+
+# Plot the data
+fig, ax = plt.subplots(figsize=(12, 8))
+ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd", scheme="quantiles", k=7,
+               edgecolor="0.4", linewidth=0.3, legend=True,
+               legend_kwds={"title": "Natural ignitions per 1,000 km²", "loc": "lower left"},
+               ax=ax)
+ax.set_title("Natural wildfire ignitions per 1,000 km² by ecoregion, 1992–2024")
+ax.set_axis_off()
+plt.show()
+
+# %% [markdown]
+# ![](../images/Project2_OverviewofData_FirebyFuelClass.png)
+
+# %% [markdown]
+# ![](../images/Project2_OverviewofData_Legend.png)
+
+# %% [markdown]
+# ## Where we are at:
+#
+# #### Spatial Joins and Overlays
+# - fire points joined to ecoregion polygons, fuel raster sampled at each fire, fuel raster resampled onto the 10 km grid
+# - To Do: overlay the density grid on the fuel grid, then draw ecoregion boundaries over the surface
+#
+# #### Attribute filtering and aggregation
+# - filtered to natural fires, dissolved ecoregions by code, ignition counts per ecoregion and fuel class, majority fuel class per grid cell
+# - To Do: mean density per fuel class. Normalizing counts by how much of each fuel exists?
+#
+# #### Choropleth and advanced visualization
+# - To Do: choropleth of ignition counts (or the normalized rate) per ecoregion
+# - To Do: density surface with ecoregion outlines on top
+# - To Do (optional): one density map per fuel class
+#
+# Additionally: How do we want to use patial weights (queen contiguity weights)?
+# I was thinking we could compare compare fire occurrence across ecoregions, then use spatial weights (and maybe Moran's I) to find clusters of neighboring ecoregions with similarly high or low ignition rates. Thoughts? (see below).
+
+# %%
+# Neighbors = ecoregions 
+w = weights.Queen.from_dataframe(ecoregion)
+w.transform = "R"   # Row-standardizing divides each weight by that row's total, so every row sums to 1
+
+print("Ecoregions:", w.n)
+print("Neighbors per ecoregion (min / mean / max):",
+      w.min_neighbors, round(w.mean_neighbors, 1), w.max_neighbors)
+print("Islands (no neighbors):", w.islands)
+
+# %%
 # ---- Majority fuel class per grid cell ----
 # Builds a coarse grid over CONUS where each cell stores the most common fuel class
 # found inside it, so density values can later be grouped by fuel class.
@@ -254,81 +329,6 @@ else:
         resampling=Resampling.mode,
     )
     np.save(fuel_mode_cache_path, fuel_mode)  # slow step runs once, then it's cached
-
-# %% [markdown]
-# ## Where we are at:
-#
-# #### Spatial Joins and Overlays
-# - fire points joined to ecoregion polygons, fuel raster sampled at each fire, fuel raster resampled onto the 10 km grid
-# - To Do: overlay the density grid on the fuel grid, then draw ecoregion boundaries over the surface
-#
-# #### Attribute filtering and aggregation
-# - filtered to natural fires, dissolved ecoregions by code, ignition counts per ecoregion and fuel class, majority fuel class per grid cell
-# - To Do: mean density per fuel class. Normalizing counts by how much of each fuel exists?
-#
-# #### Choropleth and advanced visualization
-# - To Do: choropleth of ignition counts (or the normalized rate) per ecoregion
-# - To Do: density surface with ecoregion outlines on top
-# - To Do (optional): one density map per fuel class
-#
-# Additionally: How do we want to use patial weights (queen contiguity weights)?
-# I was thinking we could compare compare fire occurrence across ecoregions, then use spatial weights (and maybe Moran's I) to find clusters of neighboring ecoregions with similarly high or low ignition rates. Thoughts? (see below).
-
-# %%
-# Neighbors = ecoregions 
-w = weights.Queen.from_dataframe(ecoregion)
-w.transform = "R"   # Row-standardizing divides each weight by that row's total, so every row sums to 1
-
-print("Ecoregions:", w.n)
-print("Neighbors per ecoregion (min / mean / max):",
-      w.min_neighbors, round(w.mean_neighbors, 1), w.max_neighbors)
-print("Islands (no neighbors):", w.islands)
-
-# %%
-# Natural ignitions per ecoregion
-ignitions = fire_fuel.groupby("US_L3CODE").size()
-# Create a new col of ignitions per ecoregion
-ecoregion["ignitions"] = ecoregion["US_L3CODE"].map(ignitions).fillna(0)
-
-# .area is in meters squared - divide by 1e9 to get per 1,000 km squared
-# Create a new col that contains the normalized ignition data 
-ecoregion["ign_per_1000km2"] = ecoregion["ignitions"] / (ecoregion.area / 1e9)
-
-# Plot the data
-fig, ax = plt.subplots(figsize=(12, 8))
-ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd", scheme="quantiles", k=7,
-               edgecolor="0.4", linewidth=0.3, legend=True,
-               legend_kwds={"title": "Natural ignitions per 1,000 km²", "loc": "lower left"},
-               ax=ax)
-ax.set_title("Natural wildfire ignitions per 1,000 km² by ecoregion, 1992–2024")
-ax.set_axis_off()
-plt.show()
-
-# %% [markdown]
-# ![](../images/Project2_OverviewofData_FirebyFuelClass.png)
-
-# %% [markdown]
-# ![](../images/Project2_OverviewofData_Legend.png)
-
-# %%
-# Remove fires that fall in unburnable fuel types NB9 Barren, NB8 Open water, & NB2 Snow/ice, -9999 Fill-NoData
-
-# look up each fuel class that is unburnable
-is_unburnable = fuel_lookup["FBFM40"].isin(["NB2", "NB8", "NB9", "Fill-NoData"])
-# Assign the values of the unburnable fuel classes to unburnable
-unburnable = fuel_lookup.loc[is_unburnable, "VALUE"]
-
-# Drop unburnable fuel classes in the fire_fuel df
-dropped = fire_fuel["FUEL_CLASS"].isin(unburnable)
-
-# How many fires were dropped?
-print(f"Dropping {dropped.sum():,} of {len(fire_fuel):,} fires ({dropped.mean():.1%}) "
-      "on snow/ice, water, barren, or no-data fuel")
-print(fire_fuel.loc[dropped, "FUEL_CLASS"].value_counts())
-
-# This keeps the fires that were not flagged to be dropped and flips 
-# every true to false and false to true so true means keep (~ means not)
-fire_fuel = fire_fuel[~dropped].copy()
 
 # %%
 # ============================================================
