@@ -26,7 +26,7 @@
 # %% [markdown]
 # # Data:
 #
-# 1. [Spatial wildfire occurrence data for the United States, 1992-2020 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
+# 1. [Spatial wildfire occurrence data for the United States, 1992-2024 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
 #    - Federal, State and Local fire data aggreagated
 #    - Discovery date, final fire size, point location (1 sq mile accuracy), wildfire-cause
 #    - 2.3 million geo-referenced wildfire records
@@ -309,6 +309,26 @@ plt.show()
 
 # %% [markdown]
 # ![](../images/Project2_OverviewofData_Legend.png)
+
+# %%
+# Remove fires that fall in unburnable fuel types NB9 Barren, NB8 Open water, & NB2 Snow/ice, -9999 Fill-NoData
+
+# look up each fuel class that is unburnable
+is_unburnable = fuel_lookup["FBFM40"].isin(["NB2", "NB8", "NB9", "Fill-NoData"])
+# Assign the values of the unburnable fuel classes to unburnable
+unburnable = fuel_lookup.loc[is_unburnable, "VALUE"]
+
+# Drop unburnable fuel classes in the fire_fuel df
+dropped = fire_fuel["FUEL_CLASS"].isin(unburnable)
+
+# How many fires were dropped?
+print(f"Dropping {dropped.sum():,} of {len(fire_fuel):,} fires ({dropped.mean():.1%}) "
+      "on snow/ice, water, barren, or no-data fuel")
+print(fire_fuel.loc[dropped, "FUEL_CLASS"].value_counts())
+
+# This keeps the fires that were not flagged to be dropped and flips 
+# every true to false and false to true so true means keep (~ means not)
+fire_fuel = fire_fuel[~dropped].copy()
 
 # %%
 # ============================================================
