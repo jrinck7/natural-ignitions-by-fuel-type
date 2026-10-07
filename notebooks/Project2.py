@@ -114,10 +114,18 @@ from sklearn.neighbors import KernelDensity
 
 # Plotting
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap, LogNorm, to_rgb
+from matplotlib.colors import ListedColormap, LogNorm, Normalize, to_hex, to_rgb
 from matplotlib.patches import Patch, Polygon, Rectangle
 
+# Interactive plotting (Bokeh: interactions run in the browser, so they also work in a saved HTML file)
+from bokeh.io import output_notebook, save, show
+from bokeh.layouts import column, row
+from bokeh.models import (ColorBar, ColumnDataSource, CustomJS, Div, FactorRange, HoverTool,
+                          LinearColorMapper, LogColorMapper, NumeralTickFormatter, Select, Slider)
+from bokeh.plotting import figure
+
 DATA_DIR = Path("../data")
+OUTPUT_DIR = Path("../outputs")
 
 
 # %% [markdown]
@@ -133,14 +141,19 @@ DATA_DIR = Path("../data")
 # Fire occurrence (7th edition, reprojected to Albers)
 # Cache paths so we don't have to recompute everytime we open a the notebook
 fire_cache_path = DATA_DIR / "processed/fire_occurrence_7th_albers.gpkg"
+# The cache folder is gitignored, so a fresh clone doesn't have it yet
+fire_cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+# Only load the columns the analysis uses (all 38 columns take ~4 GB of memory)
+fire_columns = ["FIRE_YEAR", "DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION",
+                "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "STATE"]
 
 if fire_cache_path.exists():
-    # Only load the columns the analysis uses (all 38 columns take ~4 GB of memory)
-    fire = gpd.read_file(fire_cache_path, engine="pyogrio", columns=[
-        "FIRE_YEAR", "DISCOVERY_DATE", "NWCG_CAUSE_CLASSIFICATION",
-        "NWCG_GENERAL_CAUSE", "FIRE_SIZE", "STATE"])
+    fire = gpd.read_file(fire_cache_path, engine="pyogrio", columns=fire_columns)
 else:
-    fire = gpd.read_file(DATA_DIR / "FPA_FOD/FPA_FOD_20260615.gpkg")
+    # The GeoPackage also holds a reporting-unit table, so name the fire layer explicitly
+    fire = gpd.read_file(DATA_DIR / "FPA_FOD/FPA_FOD_20260615.gpkg", layer="Fires",
+                         engine="pyogrio", columns=fire_columns)
     fire = fire.to_crs("EPSG:5070")
     fire.to_file(fire_cache_path, driver="GPKG")
 
@@ -197,9 +210,10 @@ display(fire_clean.head(10))
 natural_ignitions_cache_path = DATA_DIR / "processed/natural_fire_fuel_ecoregion.gpkg"
 
 if natural_ignitions_cache_path.exists():
-    # Only the ecoregion and fuel columns are used below, plus the point geometry for gridding
+    # Ecoregion and fuel columns, plus year/date/size for the interactive summaries, plus the point geometry for gridding
     natural_ignitions = gpd.read_file(natural_ignitions_cache_path, engine="pyogrio",
-        columns=["US_L3NAME", "US_L3CODE", "FUEL_CLASS"]).astype({"FUEL_CLASS": "int16"})
+        columns=["US_L3NAME", "US_L3CODE", "FUEL_CLASS", "FIRE_YEAR", "DISCOVERY_DATE", "FIRE_SIZE"]
+    ).astype({"FUEL_CLASS": "int16", "FIRE_YEAR": "int16", "FIRE_SIZE": "float32"})
 # Only look at naturally caused fires
 else:
     natural_fire = fire[fire["NWCG_CAUSE_CLASSIFICATION"] == "Natural"].copy()
@@ -695,9 +709,334 @@ ax.barh([names[g] for g in plot_df.index],
         edgecolor="0.3", capsize=3)
 ax.set_xlabel("Natural ignitions per 1,000 km² of fuel per year")
 ax.set_title(f"Ignition rate by fuel group, CONUS {1992}–{2024}")
-ax.spines[["top", "right"]].set_visible(False)            
+ax.spines[["top", "right"]].set_visible(False)
 plt.tight_layout()
 plt.show()
+
+
+# %% [markdown]
+# ## Summary tables for the interactive visuals
+#
+# The interactive charts only need counts, not every fire, so everything below is built from three small tables:
+# - `fire_summary`: natural ignitions counted by ecoregion × fuel group × year × month × fire size class.
+#   Yearly trends, seasonality, and size breakdowns are all a `groupby` of this table.
+# - `eco_fuel`: one row per ecoregion × fuel group with ignitions, fuel area, ignition rate (95% CI),
+#   and each fuel's share of the ecoregion's ignitions and fuel area
+# - `eco_summary`: one row per ecoregion with its totals, overall ignition rate, and the fuel group with the most ignitions
+#
+# **Relative rate** = share of the ecoregion's ignitions ÷ share of its fuel area. Above 1 means that fuel
+# ignites more than its area alone would predict *within that ecoregion*; below 1 means less.
+
+# %%
+# NWCG fire size classes (acres): A < 0.25, B 0.25–9.9, C 10–99.9, D 100–299, E 300–999, F 1,000–4,999, G 5,000+
+size_bins = [0, 0.25, 10, 100, 300, 1_000, 5_000, np.inf]
+
+# One row per fire with only the attributes the summaries need
+fire_attrs = pd.DataFrame({
+    "US_L3CODE": natural_ignitions["US_L3CODE"].astype(int),
+    "FUEL_GROUP": natural_ignitions["FUEL_GROUP"],
+    "FIRE_YEAR": natural_ignitions["FIRE_YEAR"],
+    "MONTH": pd.to_datetime(natural_ignitions["DISCOVERY_DATE"]).dt.month.astype("int8"),
+    "SIZE_CLASS": pd.cut(natural_ignitions["FIRE_SIZE"], size_bins, labels=list("ABCDEFG"), right=False),
+    "FIRE_SIZE": natural_ignitions["FIRE_SIZE"],
+})
+
+# Table 1: counts and acres burned per ecoregion / fuel group / year / month / size class
+# observed=True keeps only combinations that actually have fires (SIZE_CLASS is categorical)
+fire_summary = (fire_attrs
+                .groupby(["US_L3CODE", "FUEL_GROUP", "FIRE_YEAR", "MONTH", "SIZE_CLASS"], observed=True)
+                .agg(ignitions=("FIRE_SIZE", "size"), acres_burned=("FIRE_SIZE", "sum"))
+                .reset_index())
+
+# Ecoregion names and Level I region (title case reads better than the shapefile's ALL CAPS)
+eco_info = pd.DataFrame({"US_L3CODE": ecoregion["US_L3CODE"].astype(int),
+                         "US_L3NAME": ecoregion["US_L3NAME"],
+                         "NA_L1NAME": ecoregion["NA_L1NAME"].str.title()}).set_index("US_L3CODE").sort_index()
+
+# Table 2: every ecoregion × fuel group pair, including pairs with no fires or no fuel (filled with 0)
+pairs = pd.MultiIndex.from_product([eco_info.index, groups], names=["US_L3CODE", "FUEL_GROUP"])
+eco_fuel = pd.DataFrame({
+    "ignitions": fire_summary.groupby(["US_L3CODE", "FUEL_GROUP"])["ignitions"].sum(),
+    "area_km2": fuel_area.groupby(["US_L3CODE", "FUEL_GROUP"])["area_km2"].sum(),
+}).reindex(pairs).fillna(0).astype({"ignitions": "int64"})
+
+# Ignition rate and 95% CI, same method as the CONUS-wide bar chart above.
+# Area of 0 becomes NaN so pairs where the fuel doesn't exist get a NaN rate instead of dividing by zero
+n = eco_fuel["ignitions"]
+scale = 1_000 / (eco_fuel["area_km2"].where(eco_fuel["area_km2"] > 0) * n_years)
+eco_fuel["rate"] = n * scale
+eco_fuel["rate_low"] = np.where(n > 0, chi2.ppf(0.025, 2 * n) / 2, 0) * scale   # lower limit is 0 when there are no fires
+eco_fuel["rate_high"] = chi2.ppf(0.975, 2 * n + 2) / 2 * scale
+
+# Each fuel's share of its ecoregion's ignitions and fuel area, and their ratio (relative rate)
+eco_totals = eco_fuel.groupby(level="US_L3CODE")[["ignitions", "area_km2"]].transform("sum")
+eco_fuel["ign_share"] = eco_fuel["ignitions"] / eco_totals["ignitions"]
+eco_fuel["area_share"] = eco_fuel["area_km2"] / eco_totals["area_km2"]
+eco_fuel["rel_rate"] = eco_fuel["ign_share"] / eco_fuel["area_share"]
+
+# Table 3: one row per ecoregion
+eco_summary = eco_info.assign(
+    ignitions=eco_fuel.groupby(level="US_L3CODE")["ignitions"].sum(),
+    burnable_km2=eco_fuel.groupby(level="US_L3CODE")["area_km2"].sum(),
+)
+eco_summary["rate"] = eco_summary["ignitions"] / eco_summary["burnable_km2"] * 1_000 / n_years
+eco_summary["top_fuel_group"] = eco_fuel["ignitions"].unstack()[groups].idxmax(axis=1)
+
+# Sanity check: every fire should be counted exactly once
+print(f"Fires in fire_summary: {fire_summary['ignitions'].sum():,} (should equal {len(natural_ignitions):,})")
+print(f"Fires in eco_fuel:     {eco_fuel['ignitions'].sum():,}")
+display(fire_summary.head())
+display(eco_fuel.head(6).round(3))
+display(eco_summary.sort_values("rate", ascending=False).head().round(2))
+
+
+# %% [markdown]
+# ## Interactive heatmap + map: ignition rate by ecoregion and fuel group
+#
+# Each heatmap cell is one fuel group inside one ecoregion. Hover over a cell for its counts, area, rate, and confidence interval.
+# - **Color by** switches between the ignition rate, relative rate, shares, and raw counts (heatmap and map together)
+# - **Sort ecoregions by** reorders the rows, e.g. by the rate on one fuel group to see where that fuel burns most
+# - **The slider** greys out cells where the fuel covers too little area for the rate to be trustworthy
+#   (a few fires on a tiny patch of fuel give a huge but meaningless rate).
+#
+# The map beside it shows **one fuel group at a time** in the same colors, so you can see whether high/low values cluster in space.
+# - **Click a heatmap cell**: the map switches to that cell's fuel group and outlines that ecoregion
+# - **Click an ecoregion on the map**: its row is highlighted in the heatmap. Click empty space to clear.
+# - Pan and zoom the map with the toolbar (useful for the small eastern ecoregions)
+#
+# Everything is also saved as a standalone HTML file in `outputs/`. It works without Jupyter, so it can be shared or linked from the PDF.
+
+# %%
+output_notebook(hide_banner=True)
+
+MIN_FUEL_KM2 = 100           # default cut-off for "too little fuel to trust the rate"
+NO_FUEL = "#f0f0f0"          # fuel group doesn't exist in this ecoregion
+LOW_AREA = "#bdbdbd"         # fuel exists, but covers less than the slider's area
+
+# One row per cell, with the ecoregion's names attached
+hm = eco_fuel.reset_index().join(eco_info, on="US_L3CODE")
+hm["fuel_name"] = hm["FUEL_GROUP"].map(names)
+reliable = hm["area_km2"] >= MIN_FUEL_KM2
+
+# Color scale bounds come from the 2nd–98th percentile of the trustworthy cells, so a few extreme cells don't wash out the rest
+def bounds(col):
+    vals = hm.loc[reliable & (hm[col] > 0), col]
+    return vals.quantile(0.02), vals.quantile(0.98)
+
+rate_lo, rate_hi = bounds("rate")
+rel_lo, rel_hi = bounds("rel_rate")
+rel_max = max(1 / rel_lo, rel_hi)    # symmetric around 1 on a log scale, so 1 is the neutral middle color
+count_lo, count_hi = bounds("ignitions")
+
+# metric -> (label, matplotlib colormap, normalization)
+metrics = {
+    "rate":       ("Ignition rate (ignitions per 1,000 km² of fuel per year)", "YlOrRd", LogNorm(rate_lo, rate_hi)),
+    "rel_rate":   ("Relative rate (share of ignitions ÷ share of fuel area)", "RdBu_r", LogNorm(1 / rel_max, rel_max)),
+    "ign_share":  ("Share of the ecoregion's ignitions", "Purples", Normalize(0, 1)),
+    "area_share": ("Share of the ecoregion's fuel area", "Greens", Normalize(0, 1)),
+    "ignitions":  ("Ignition count, 1992–2024", "YlOrRd", LogNorm(max(count_lo, 1), count_hi)),
+}
+
+# Pre-compute every cell's color for every metric (one column each); the browser just swaps columns
+mappers = {}
+for key, (label, cmap_name, norm) in metrics.items():
+    cmap = plt.get_cmap(cmap_name)
+    values = hm[key].to_numpy(dtype=float)
+    rgba = cmap(norm(np.clip(values, norm.vmin, norm.vmax)))
+    hm[f"c_{key}"] = np.where(np.isnan(values), NO_FUEL, [to_hex(c) for c in rgba])
+    # Matching Bokeh color mapper so the color bar uses the same colors and range
+    palette = [to_hex(c) for c in cmap(np.linspace(0, 1, 256))]
+    Mapper = LogColorMapper if isinstance(norm, LogNorm) else LinearColorMapper
+    mappers[key] = Mapper(palette=palette, low=norm.vmin, high=norm.vmax)
+
+def cell_colors(metric, min_area):
+    """Same rule as the JavaScript callback below: no fuel -> light grey, too little fuel -> grey, else the metric color."""
+    return np.where(hm["area_km2"] == 0, NO_FUEL,
+                    np.where(hm["area_km2"] < min_area, LOW_AREA, hm[f"c_{metric}"]))
+
+hm["fill"] = cell_colors("rate", MIN_FUEL_KM2)
+
+# Row orders for the sort menu. Rate sorts use only trustworthy cells; the rest go to the bottom.
+rate_wide = hm.pivot(index="US_L3NAME", columns="FUEL_GROUP", values="rate")
+area_wide = hm.pivot(index="US_L3NAME", columns="FUEL_GROUP", values="area_km2")
+orders = {
+    "Overall ignition rate (high → low)": eco_summary.sort_values("rate", ascending=False)["US_L3NAME"].tolist(),
+    "Level I region, then name": eco_info.sort_values(["NA_L1NAME", "US_L3NAME"])["US_L3NAME"].tolist(),
+    "Ecoregion code": eco_info["US_L3NAME"].tolist(),
+    "Name (A–Z)": sorted(eco_info["US_L3NAME"]),
+}
+for g in groups:
+    rate_g = rate_wide[g].where(area_wide[g] >= MIN_FUEL_KM2)
+    orders[f"{names[g]} rate (high → low)"] = rate_g.sort_values(ascending=False, na_position="last").index.tolist()
+# Bokeh draws the first category at the bottom, so reverse each list to put the first ecoregion on top
+orders = {k: v[::-1] for k, v in orders.items()}
+default_sort = "Overall ignition rate (high → low)"
+
+# Position of each cell's ecoregion (row in eco_info) and fuel group (in `groups`), so the browser can
+# find "the cell for ecoregion j and fuel group k" as index j * len(groups) + k (hm is ecoregion-major)
+hm["eco_pos"] = hm["US_L3CODE"].map({code: j for j, code in enumerate(eco_info.index)})
+hm["fuel_pos"] = hm["FUEL_GROUP"].map({g: k for k, g in enumerate(groups)})
+assert (hm.index == hm["eco_pos"] * len(groups) + hm["fuel_pos"]).all()
+
+source = ColumnDataSource(hm.drop(columns="FUEL_GROUP"))
+
+hover_rows = [
+    ("Ecoregion", "@US_L3NAME (@US_L3CODE)"),
+    ("Level I region", "@NA_L1NAME"),
+    ("Fuel group", "@fuel_name"),
+    ("Ignitions", "@ignitions{0,0}"),
+    ("Fuel area", "@area_km2{0,0} km²"),
+    ("Ignition rate", "@rate{0.00} per 1,000 km²/yr (95% CI @rate_low{0.00}–@rate_high{0.00})"),
+    ("Share of ignitions", "@ign_share{0.0%}"),
+    ("Share of fuel area", "@area_share{0.0%}"),
+    ("Relative rate", "@rel_rate{0.00}×"),
+]
+
+def make_color_bar():
+    return ColorBar(color_mapper=mappers["rate"], title=metrics["rate"][0], orientation="horizontal",
+                    width=420, height=12, location=(0, 0), padding=10,
+                    formatter=NumeralTickFormatter(format="0.[00]"))   # plain numbers instead of 10⁰, 10¹ on log scales
+
+# --- Heatmap ---
+p = figure(x_range=[names[g] for g in groups], y_range=FactorRange(factors=orders[default_sort]),
+           width=820, height=16 * len(eco_info) + 150, x_axis_location="above",
+           tools="tap", toolbar_location=None)
+# Selected cells (a clicked ecoregion's row) stay solid, everything else fades
+p.rect(x="fuel_name", y="US_L3NAME", width=0.96, height=0.9, source=source,
+       fill_color="fill", line_color=None,
+       selection_line_color="black", selection_line_width=1.5, nonselection_fill_alpha=0.35)
+p.add_tools(HoverTool(tooltips=hover_rows))
+p.axis.axis_line_color = None
+p.axis.major_tick_line_color = None
+p.grid.grid_line_color = None
+p.yaxis.major_label_text_font_size = "9pt"
+p.xaxis.major_label_text_font_size = "9pt"
+heat_bar = make_color_bar()
+p.add_layout(heat_bar, "above")
+
+# --- Choropleth ---
+# Simplify the outlines (1 km tolerance) so the saved HTML stays small; invisible at this map size
+eco_geoms = ecoregion.set_index(ecoregion["US_L3CODE"].astype(int)).geometry.simplify(1_000).loc[eco_info.index]
+
+def rings(geom):
+    """Bokeh multi_polygons format: a list of polygons, each a list of rings (exterior first, then holes)."""
+    polys = geom.geoms if geom.geom_type == "MultiPolygon" else [geom]
+    xs = [[np.round(ring.xy[0]).tolist() for ring in (poly.exterior, *poly.interiors)] for poly in polys]
+    ys = [[np.round(ring.xy[1]).tolist() for ring in (poly.exterior, *poly.interiors)] for poly in polys]
+    return xs, ys
+
+# One row per ecoregion (same order as eco_info), starting on the first fuel group.
+# The browser copies the chosen fuel group's columns from the heatmap's source into this one.
+map_df = hm[hm["FUEL_GROUP"] == groups[0]].drop(columns="FUEL_GROUP").reset_index(drop=True)
+map_df["xs"], map_df["ys"] = zip(*(rings(geom) for geom in eco_geoms))
+map_source = ColumnDataSource(map_df)
+
+m = figure(width=640, height=430, match_aspect=True, tools="pan,wheel_zoom,reset,tap",
+           toolbar_location="below", title=f"Map: {names[groups[0]]}")
+m.multi_polygons(xs="xs", ys="ys", source=map_source, fill_color="fill",
+                 line_color="white", line_width=0.4,
+                 selection_line_color="black", selection_line_width=2.5,
+                 nonselection_fill_alpha=1, nonselection_line_color="white")
+m.add_tools(HoverTool(tooltips=hover_rows))
+m.axis.visible = False
+m.grid.grid_line_color = None
+m.outline_line_color = None
+map_bar = make_color_bar()
+m.add_layout(map_bar, "above")
+
+# --- Widgets ---
+metric_select = Select(title="Color by", value="rate", width=380,
+                       options=[(k, label) for k, (label, _, _) in metrics.items()])
+sort_select = Select(title="Sort ecoregions by", value=default_sort, options=list(orders), width=300)
+area_slider = Slider(title="Grey out fuels covering less than (km²)", start=0, end=2_000, step=50,
+                     value=MIN_FUEL_KM2, width=380)
+map_fuel = Select(title="Fuel group shown on map", value=groups[0], width=300,
+                  options=[(g, names[g]) for g in groups])
+grey_key = Div(text=f"<span style='background:{NO_FUEL};padding:0 8px'>&nbsp;</span> fuel group absent &nbsp; "
+               f"<span style='background:{LOW_AREA};padding:0 8px'>&nbsp;</span> too little fuel area to trust the rate")
+
+# Columns copied from the heatmap's source onto the map for the chosen fuel group (colors + hover values)
+map_columns = ["fill", "fuel_name", "ignitions", "area_km2", "rate", "rate_low", "rate_high",
+               "ign_share", "area_share", "rel_rate"]
+
+# Runs in the browser whenever a widget changes: recolor cells and map, swap the color bars, reorder rows
+update = CustomJS(
+    args=dict(source=source, map_source=map_source, metric=metric_select, sort=sort_select,
+              slider=area_slider, map_fuel=map_fuel, color_bars=[heat_bar, map_bar], map_fig=m,
+              mappers=mappers, orders=orders, y_range=p.y_range, map_columns=map_columns,
+              titles={k: label for k, (label, _, _) in metrics.items()},
+              fuel_names=names, groups=groups, no_fuel=NO_FUEL, low_area=LOW_AREA),
+    code="""
+    const d = source.data;
+    const colors = d["c_" + metric.value];
+    for (let i = 0; i < d.fill.length; i++) {
+        d.fill[i] = d.area_km2[i] == 0 ? no_fuel : (d.area_km2[i] < slider.value ? low_area : colors[i]);
+    }
+    source.change.emit();
+
+    // Map: ecoregion j takes the values of heatmap cell j * n_groups + k
+    const k = groups.indexOf(map_fuel.value);
+    const md = map_source.data;
+    for (const col of map_columns) {
+        for (let j = 0; j < md[col].length; j++) {
+            md[col][j] = d[col][j * groups.length + k];
+        }
+    }
+    map_source.change.emit();
+    map_fig.title.text = "Map: " + fuel_names[map_fuel.value];
+
+    for (const bar of color_bars) {
+        bar.color_mapper = mappers[metric.value];
+        bar.title = titles[metric.value];
+    }
+    y_range.factors = orders[sort.value];
+""")
+for widget in (metric_select, sort_select, area_slider, map_fuel):
+    widget.js_on_change("value", update)
+
+# Linking clicks. Selecting one side updates the other; the equality checks stop the two from
+# endlessly re-triggering each other.
+# Heatmap click: select the clicked cell's whole row, show its fuel group on the map, outline the ecoregion
+heat_click = CustomJS(args=dict(source=source, map_source=map_source, map_fuel=map_fuel, groups=groups), code="""
+    const sel = source.selected.indices;
+    const n = groups.length;
+    if (sel.length == 0) {
+        if (map_source.selected.indices.length > 0) map_source.selected.indices = [];
+        return;
+    }
+    const j = source.data.eco_pos[sel[0]];
+    const row = Array.from({length: n}, (_, k) => j * n + k);
+    if (sel.length == 1) {
+        map_fuel.value = groups[source.data.fuel_pos[sel[0]]];   // a single clicked cell (not a whole row from the map)
+    }
+    if (sel.length != n || sel[0] != row[0]) source.selected.indices = row;
+    if (map_source.selected.indices[0] != j) map_source.selected.indices = [j];
+""")
+source.selected.js_on_change("indices", heat_click)
+
+# Map click: highlight that ecoregion's row in the heatmap
+map_click = CustomJS(args=dict(source=source, map_source=map_source, groups=groups), code="""
+    const sel = map_source.selected.indices;
+    const n = groups.length;
+    if (sel.length == 0) {
+        if (source.selected.indices.length > 0) source.selected.indices = [];
+        return;
+    }
+    const j = sel[0];
+    if (source.selected.indices[0] != j * n || source.selected.indices.length != n) {
+        source.selected.indices = Array.from({length: n}, (_, k) => j * n + k);
+    }
+""")
+map_source.selected.js_on_change("indices", map_click)
+
+# The map panel sticks to the top of the window while you scroll down the (tall) heatmap
+map_panel = column(map_fuel, m, styles={"position": "sticky", "top": "0px", "align-self": "flex-start"})
+dashboard = column(row(metric_select, sort_select), area_slider, grey_key, row(p, map_panel))
+show(dashboard)
+
+OUTPUT_DIR.mkdir(exist_ok=True)
+save(dashboard, filename=OUTPUT_DIR / "ecoregion_fuel_dashboard.html",
+     title="Natural ignitions by ecoregion and fuel group")
 
 
 # %%
