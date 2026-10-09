@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.15.2
+#       jupytext_version: 1.19.6
 #   kernelspec:
 #     display_name: gds
 #     language: python
@@ -14,20 +14,33 @@
 # ---
 
 # %% [markdown]
-# # Project 2: Launch
+# # Project 2: Natural Wildfire Ignition Frequency by Fuel Type Across CONUS Ecoregions, 1992–2024
+#
+# **Names:** Jansen Rinck, Benjamin Barlog, Jianru Shen 
+# **Class:** CSCI 502: Geospatial Data Science  
+# **Date:** 10/6/2026
+
+# %% [markdown]
+# ## Introduction
+# **TO DO**
 
 # %% [markdown]
 # ## Research Question: 
 # Between 2018 and 2020, does the rate at which lightning strikes convert into wildfire ignitions vary by fuel type across the ecoregions of the contiguous United States, independent of raw lightning exposure?
 #
 # ##### Revised Research Question:
-# Between 1992 and 2024, how are naturally occuring wildfires distributed across ecoregions and what fuel-types during this time period account for the most natural ignitions? 
+# Between 1992 and 2024, how are naturally occurring wildfires distributed across ecoregions and which fuel types have the highest natural ignition rates relative to the area they cover? 
+
+# %% [markdown]
+# ### Hypothesis:
+#
+# Between 1992 and 2024, natural wildfire ignitions are not distributed randomly across CONUS ecoregions. They cluster by ecoregion and neighboring ecoregions will have similar ignition rates. Fuel types impact the rate of ignition - grass and grass-shrub fuels will be the most susceptible to natural ignitions relative to the area they cover.
 
 # %% [markdown]
 # # Data:
 #
 # 1. [Spatial wildfire occurrence data for the United States, 1992-2024 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
-#    - Federal, State and Local fire data aggreagated
+#    - Federal, State and Local fire data aggregated
 #    - Discovery date, final fire size, point location (1 sq mile accuracy), wildfire-cause
 #    - 2.3 million geo-referenced wildfire records
 # 2. [LANDFIRE's 40 Scott and Burgan Fire Behavior Fuel Model (FBFM40), CONUS raster (USFS & USGS](https://www.sciencebase.gov/catalog/item/6a1602c7b66b013d45990b82)
@@ -41,48 +54,106 @@
 # ## Data for Further Analysis 
 # 4. [Combined Geostationary Lightning Mapper (GLM) Hourly Thunder Hour Data Product (NASA)](https://search.earthdata.nasa.gov/search/granules/collection-details?p=C3894650367-GHRC_DAAC&pg[0][v]=f&pg[0][gsk]=-start_date&q=Lightning%20Mapper&lat=40.780546668112606&long=-83.81276234265948&zoom=3.990854889796647)
 #    - 2019 - 2025
-#    - Two sattelites GOES-18 (west) and GOES-19 (east)
+#    - Two satellites GOES-18 (west) and GOES-19 (east)
 #    - Thunder hour: an hour with detected lightning at a location - a frequency-based storm-activity metric, less biased by a sensor's geographic detection-sensitivity variation than raw flash counts
 #    - Resolution: 5 km 
 
 # %% [markdown]
-# ## Data Processing:
-# 1. CRS
-#    - Albers Equal Area Conic
-#         - Preserves area calculation accuracy
-#         - Minimal distortion for CONUS
-# 2.  Zonal Statistics at CONUS Scale for LANDFIRE Raster
-#     - Windowed (chunked) reads for the raster data set to avoid memory issues in Docker
-# 3. Lightning Data Cropping to CONUS
-# 5. LANDFIRE Attribute Table
-#     - Translate values to fuel model classes
-# 6. Categorize Fuel Types
-#    - Single majority class per eco region?
-#    - Proportions of fuel class per eco region?
-#    - Lightning strikes per fuel class
-
-# %% [markdown]
-# ## Analysis Methods:
+# ## Definitions: Scott and Burgan Fuel Models (FBFM40)
 #
-# ### Spatial joins and overlays
+# Scott and Burgan (2005) group their 40 fire behavior fuel models (plus 5 nonburnable models) by the fuel that primarily carries fire. Values in parentheses are the codes used in the LANDFIRE FBFM40 raster.
 #
-# - Fire points joined to ecoregion polygons (point-in-polygon)
-# - Fire points sampled against the fuel raster (tagging each ignition with its fuel class)
-# - Lightning grid cells overlaid on the fuel raster to assign each cell a majority fuel class
-# - Statistics of the fuel raster within ecoregion polygons (raster clipped by polygon)
+# | Group | Primary carrier of fire |
+# |---|---|
+# | NB – Nonburnable | No fuel load; fire will not spread |
+# | GR – Grass | Grass |
+# | GS – Grass-Shrub | Grass and shrubs combined |
+# | SH – Shrub | Shrub twigs, foliage, and shrub litter |
+# | TU – Timber-Understory | Forest litter with herbaceous or shrub fuels |
+# | TL – Timber Litter | Dead and down woody fuel |
+# | SB – Slash-Blowdown | Activity fuel or blowdown |
 #
-# ### Attribute filtering and aggregation
+# **Nonburnable (NB):** There is no fuel load, so wildland fire will not spread.
 #
-# - Filtering fire records to NWCG_CAUSE == "Natural" and to the date range February 2019–December 2020
-# - Lightning will use the combined Monthly Thunder Hour product for 2019 and 2020 to summ across CONUS to get a per grid cell count 
-#     - Monthly Thunder Hour: did lightning happen in this cell during this hour, yes or no?
-# - Aggregating fuel pixel counts within each ecoregion into classes
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | NB1 (91) | Urban/Developed | Urban and suburban development that does not support wildland fire spread |
+# | NB2 (92) | Snow/Ice | Land covered by permanent snow or ice |
+# | NB3 (93) | Agricultural | Agricultural land maintained in a nonburnable condition (e.g., irrigated annual crops, mowed or tilled orchards) |
+# | NB8 (98) | Open Water | Open bodies of water such as lakes, rivers, and oceans |
+# | NB9 (99) | Bare Ground | Land without enough fuel to support fire spread (e.g., gravel pits, sparse arid desert, sand dunes, rock outcrops, beaches) |
 #
-# ### Choropleth mapping and advanced visualization
+# **Grass (GR):** The primary carrier of fire is grass, ranging from heavily grazed stubble or sparse natural grass to dense grass more than 6 feet tall. All GR models are dynamic: live herbaceous fuel shifts from live to dead as it dries.
 #
-# - Fuel map colored by their ignition-to-thunder-hour ratio
-# - Ecoregions colored by their ignition-to-thunder-hour ratio
-# - Create a map that displays the areas with the most lightning cause wildfire ignitions 
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | GR1 (101) | Short, Sparse Dry Climate Grass | Short, sparse grass (naturally or from grazing) that may be discontinuous |
+# | GR2 (102) | Low Load, Dry Climate Grass | Grass with more load than GR1; fuelbed may be more continuous |
+# | GR3 (103) | Low Load, Very Coarse, Humid Climate Grass | Continuous, coarse, humid-climate grass; light load, about 2 ft deep |
+# | GR4 (104) | Moderate Load, Dry Climate Grass | Continuous dry-climate grass; more load and depth than GR2, about 2 ft deep |
+# | GR5 (105) | Low Load, Humid Climate Grass | Humid-climate grass; more load than GR3, 1–2 ft deep |
+# | GR6 (106) | Moderate Load, Humid Climate Grass | Continuous humid-climate grass; more load than GR5 and less coarse |
+# | GR7 (107) | High Load, Dry Climate Grass | Continuous dry-climate grass about 3 ft tall |
+# | GR8 (108) | High Load, Very Coarse, Humid Climate Grass | Continuous, very coarse humid-climate grass; spread and flame length can be extreme when cured |
+# | GR9 (109) | Very High Load, Humid Climate Grass | Dense humid-climate grass about 6 ft tall; spread and flame length can be extreme when cured |
+#
+# **Grass-Shrub (GS):** The primary carrier of fire is grass and shrubs combined; both determine fire behavior. All GS models are dynamic.
+#
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | GS1 (121) | Low Load, Dry Climate Grass-Shrub | Shrubs about 1 ft high, low grass load; moderate spread, low flame length |
+# | GS2 (122) | Moderate Load, Dry Climate Grass-Shrub | Shrubs 1–3 ft high, moderate grass load; high spread, moderate flame length |
+# | GS3 (123) | Moderate Load, Humid Climate Grass-Shrub | Moderate grass/shrub load under 2 ft deep; high spread, moderate flame length |
+# | GS4 (124) | High Load, Humid Climate Grass-Shrub | Heavy grass/shrub load over 2 ft deep; high spread, very high flame length |
+#
+# **Shrub (SH):** The primary carrier of fire is live and dead shrub twigs and foliage together with dead and down shrub litter. SH1 and SH9 are dynamic.
+#
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | SH1 (141) | Low Load Dry Climate Shrub | Low shrub load about 1 ft deep, some grass; very low spread and flame length |
+# | SH2 (142) | Moderate Load Dry Climate Shrub | Moderate load about 1 ft deep, no grass; low spread and flame length |
+# | SH3 (143) | Moderate Load, Humid Climate Shrub | Moderate shrub load, possibly under pine overstory, 2–3 ft deep; low spread and flame length |
+# | SH4 (144) | Low Load, Humid Climate Timber-Shrub | Low to moderate shrub and litter load, possibly under pine overstory, about 3 ft deep; high spread, moderate flame length |
+# | SH5 (145) | High Load, Dry Climate Shrub | Heavy shrub load 4–6 ft deep; very high spread and flame length |
+# | SH6 (146) | Low Load, Humid Climate Shrub | Dense shrubs, little or no herbaceous fuel, about 2 ft deep; high spread and flame length |
+# | SH7 (147) | Very High Load, Dry Climate Shrub | Very heavy shrub load 4–6 ft deep; high spread, very high flame length |
+# | SH8 (148) | High Load, Humid Climate Shrub | Dense shrubs, little or no herbaceous fuel, about 3 ft deep; high spread and flame length |
+# | SH9 (149) | Very High Load, Humid Climate Shrub | Dense, finely branched shrubs 4–6 ft tall with much fine dead fuel; high spread, very high flame length |
+#
+# **Timber-Understory (TU):** The primary carrier of fire is forest litter combined with herbaceous or shrub fuels. TU1 and TU3 are dynamic.
+#
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | TU1 (161) | Low Load Dry Climate Timber-Grass-Shrub | Low load of grass and/or shrub with litter; low spread and flame length |
+# | TU2 (162) | Moderate Load, Humid Climate Timber-Shrub | Moderate litter load with a shrub component; moderate spread, low flame length |
+# | TU3 (163) | Moderate Load, Humid Climate Timber-Grass-Shrub | Moderate forest litter with grass and shrubs; high spread, moderate flame length |
+# | TU4 (164) | Dwarf Conifer With Understory | Short conifer trees with a grass or moss understory; moderate spread and flame length |
+# | TU5 (165) | Very High Load, Dry Climate Timber-Shrub | Heavy forest litter with a shrub or small-tree understory; moderate spread and flame length |
+#
+# **Timber Litter (TL):** The primary carrier of fire is dead and down woody fuel. Live fuel, if present, has little effect on fire behavior.
+#
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | TL1 (181) | Low Load Compact Conifer Litter | Compact forest litter 1–2 in deep; can represent recently burned forest; very low spread and flame length |
+# | TL2 (182) | Low Load Broadleaf Litter | Low load, compact broadleaf (hardwood) litter; very low spread and flame length |
+# | TL3 (183) | Moderate Load Conifer Litter | Moderate conifer litter with a light load of coarse fuels; very low spread, low flame length |
+# | TL4 (184) | Small Downed Logs | Moderate fine litter and coarse fuels, including small-diameter downed logs; low spread and flame length |
+# | TL5 (185) | High Load Conifer Litter | High conifer litter load with light slash or mortality fuel; low spread and flame length |
+# | TL6 (186) | Moderate Load Broadleaf Litter | Moderate broadleaf litter, less compact than TL2; moderate spread, low flame length |
+# | TL7 (187) | Large Downed Logs | Heavy forest litter including larger-diameter downed logs; low spread and flame length |
+# | TL8 (188) | Long-Needle Litter | Moderate long-needle pine litter, possibly with some herbaceous fuel; moderate spread, low flame length |
+# | TL9 (189) | Very High Load Broadleaf Litter | Very high load, fluffy broadleaf litter (or heavy needle-drape); moderate spread and flame length |
+#
+# **Slash-Blowdown (SB):** The primary carrier of fire is activity fuel or blowdown. Forested areas with heavy mortality may also be modeled with SB.
+#
+# | Code (value) | Name | Description |
+# |---|---|---|
+# | SB1 (201) | Low Load Activity Fuel | Light dead and down activity fuel under 1 ft deep; moderate spread, low flame length |
+# | SB2 (202) | Moderate Load Activity Fuel or Low Load Blowdown | Moderate dead and down activity fuel or light blowdown, about 1 ft deep |
+# | SB3 (203) | High Load Activity Fuel or Moderate Load Blowdown | Heavy dead and down activity fuel or moderate blowdown, more than 1 ft deep |
+# | SB4 (204) | High Load Blowdown | Heavy, uncompacted blowdown with foliage and fine fuel still attached; very high spread and flame length |
+#
+# *Source: Scott, J. H., & Burgan, R. E. (2005). Standard fire behavior fuel models: A comprehensive set for use with Rothermel's surface fire spread model (Gen. Tech. Rep. RMRS-GTR-153, pp. 19–70). USDA Forest Service, Rocky Mountain Research Station.*
 
 # %%
 # Import libraries
@@ -132,7 +203,7 @@ OUTPUT_DIR = Path("../outputs")
 # ## Reprojections for Analysis and Geographic Alignment 
 #
 # ##### Projection: EPSG:5070 — NAD83 / Conus Albers Equal Area Conic
-# - Albers is an equal-area projection that preserves area accuarcy for CONUS
+# - Albers is an equal-area projection that preserves area accuracy for CONUS
 # - Minimal distortion for CONUS
 # - Well-suited for regional comparisons
 #
@@ -178,6 +249,9 @@ else:
     ecoregion = ecoregion.dissolve(by="US_L3CODE", as_index=False)
     ecoregion.to_file(ecoregion_cache_path, driver="GPKG")
 
+# %% [markdown]
+# ## Data Exploration and Cleaning
+
 # %%
 # Look at the datasets to identify what needs to be cleaned
 print("Fire Occurrence")
@@ -220,11 +294,11 @@ else:
 
     # Build a list of x,y pairs of point geom for natural fires
     coords = [(geom.x, geom.y) for geom in natural_fire.geometry]
-    # Look up the rasters pixel by coords (val[0] removes the raterio wrapper and returns an int to the new col FUEL_CLASS to natural_fire
+    # Look up the rasters pixel by coords (val[0] removes the rasterio wrapper and returns an int to the new col FUEL_CLASS to natural_fire
     natural_fire["FUEL_CLASS"] = [val[0] for val in fuelClass.sample(coords)]
 
     # Spatial join tags each fire WITHIN its containing ecoregion
-    # geopandas spatial join matches rows based on geom
+    # Geopandas spatial join matches rows based on geom
     natural_ignitions = gpd.sjoin(natural_fire, ecoregion, how="left", predicate="within")
 
     natural_ignitions.to_file(natural_ignitions_cache_path, driver="GPKG")
@@ -266,6 +340,34 @@ print(natural_ignitions.loc[dropped, "FUEL_CLASS"].value_counts())
 # This keeps the fires that were not flagged to be dropped and flips 
 # every true to false and false to true so true means keep (~ means not)
 natural_ignitions = natural_ignitions[~dropped].copy()
+
+# %% [markdown]
+# ### Data Cleaning Discussion:
+# **TO DO**
+
+# %% [markdown]
+# ## Overview: Natural Ignitions by Fuel Class
+
+# %% [markdown]
+# ![](../images/Project2_OverviewofData_FirebyFuelClass.png)
+
+# %% [markdown]
+# ![](../images/Project2_OverviewofData_Legend.png)
+
+# %% [markdown]
+# **View.** **TO DO**
+
+# %% [markdown]
+# ### Discussion - Overview
+# **TO DO**
+
+# %% [markdown]
+# ### Data Processing & Visualization
+#
+# **TO DO**
+
+# %% [markdown]
+# ## Iteration 1: Natural Ignitions per 1,000 km² by Ecoregion
 
 # %%
 # Natural ignitions per ecoregion
@@ -340,29 +442,44 @@ ax.set_axis_off()
 plt.show()
 
 # %% [markdown]
-# ![](../images/Project2_OverviewofData_FirebyFuelClass.png)
+# **View.** **TO DO**
 
 # %% [markdown]
-# ![](../images/Project2_OverviewofData_Legend.png)
+# ### Discussion – First Iteration
+# **TO DO**
 
 # %% [markdown]
-# ## Where we are at:
-#
-# #### Spatial Joins and Overlays
-# - fire points joined to ecoregion polygons, fuel raster sampled at each fire, fuel raster resampled onto the 10 km grid
-# - To Do: overlay the density grid on the fuel grid, then draw ecoregion boundaries over the surface
-#
-# #### Attribute filtering and aggregation
-# - filtered to natural fires, dissolved ecoregions by code, ignition counts per ecoregion and fuel class, majority fuel class per grid cell
-# - To Do: mean density per fuel class. Normalizing counts by how much of each fuel exists?
-#
-# #### Choropleth and advanced visualization
-# - To Do: choropleth of ignition counts (or the normalized rate) per ecoregion
-# - To Do: density surface with ecoregion outlines on top
-# - To Do (optional): one density map per fuel class
-#
-# Additionally: How do we want to use patial weights (queen contiguity weights)?
-# I was thinking we could compare compare fire occurrence across ecoregions, then use spatial weights (and maybe Moran's I) to find clusters of neighboring ecoregions with similarly high or low ignition rates. Thoughts? (see below).
+# ### Data Processing & Visualization
+# **TO DO**
+
+# %% [markdown]
+# ## Iteration 2: Spatial Weights & Moran's I
+
+# %%
+# TO DO Spatial weights & Moran's I — paste Colab cell 1 of 4 here
+
+# %%
+# TO DO Spatial weights & Moran's I — paste Colab cell 2 of 4 here
+
+# %%
+# TO DO Spatial weights & Moran's I — paste Colab cell 3 of 4 here
+
+# %%
+# TO DO Spatial weights & Moran's I — paste Colab cell 4 of 4 here
+
+# %% [markdown]
+# **Figure.** **TO DO**
+
+# %% [markdown]
+# ### Discussion – Second Iteration
+# **TO DO**
+
+# %% [markdown]
+# ### Data Processing & Visualization
+# **TO DO**
+
+# %% [markdown]
+# ## Iteration 3: Natural Ignition Density by Fuel Group
 
 # %%
 # Cross-validate KDE bandwidth (σ)
@@ -370,7 +487,7 @@ plt.show()
 # too small overfits individual fires, too large smooths away patterns.
 # Uses all fires because the best σ shrinks as the number of points grows.
 
-# Pull out the natural_ignitions coordinates in meters. KDE's do not work with coordinates
+# Pull out the natural_ignitions coordinates in meters. The KDE needs projected coordinates (meters), not lat/lon
 fire_xy = np.column_stack([natural_ignitions.geometry.x, natural_ignitions.geometry.y])   # EPSG:5070 meters
 
 # Create a cross-validation bandwidth function that uses grid search to find the optimal sigma
@@ -378,8 +495,8 @@ def cv_bandwidth(candidates):
     search = GridSearchCV(
         KernelDensity(kernel="gaussian", rtol=1e-4),   
         {"bandwidth": candidates},                      # σ values to try, in meters
-        # 5 folds, shuffled: the file is ordered by agency/region, so unshuffled folds
-        # aren't grouped by region and are truly random
+        # 5 folds, shuffled: the file is ordered by agency/region, so shuffling keeps
+        # the folds from being grouped by region
         cv=KFold(n_splits=5, shuffle=True, random_state=0),
         n_jobs=-1,                                      # use all CPU cores
     )
@@ -389,11 +506,11 @@ def cv_bandwidth(candidates):
 # 2-stage coarse search over 2–30 km, then a finer search around the optimal sigma
 # Makes 12 bandwidths from 2-30km
 coarse = np.geomspace(2_000, 30_000, 12)
-# Runs the cross-validation on all 12 valuesand returns the best σ and the average score for each one
+# Runs the cross-validation on all 12 values and returns the best σ and the average score for each one
 best, scores = cv_bandwidth(coarse)
 # Returns the position of the highest score
 i = int(np.argmax(scores))
-# Use i for the fine search to make 7 candidates evenly spaced around the optimal sigma's two neightbors
+# Use i for the fine search to make 7 candidates evenly spaced around the optimal sigma's two neighbors
 fine = np.linspace(coarse[max(i - 1, 0)], coarse[min(i + 1, len(coarse) - 1)], 7)
 # Return the best σ from the fine cv
 best_bandwidth, _ = cv_bandwidth(fine)
@@ -442,8 +559,8 @@ print(f"Most fires in one cell: {fire_counts.max()}")
 
 # Step 3: Gaussian KDE of natural ignitions on the 1 km grid
 bandwidth = round(best_bandwidth, -2)  # kernel standard deviation (σ) in meters, from cross-validation
-sigma_cells = bandwidth / cell_size    # gaussian_filter works in cells, not meters -> 3 cells
-                                       # 68% of each fire's weight stays within 3 km of it and about 95% within 6 km
+sigma_cells = bandwidth / cell_size    # gaussian_filter works in cells, not meters -> 5.1 cells
+                                       # 68% of each fire's weight stays within ~5 km of it and about 95% within ~10 km
 
 density = gaussian_filter(
     fire_counts.astype("float32"),     # input grid (must be float)
@@ -469,6 +586,9 @@ ax.set_axis_off()
 plt.show()
 
 
+
+# %% [markdown]
+# **View.** **TO DO**
 
 # %%
 # Fuel group = first two letters of the FBFM40 code (GR, GS, SH, TU, TL); NB3 agriculture -> "Ag"
@@ -517,6 +637,20 @@ fig.suptitle(f"Kernel density of natural ignitions by fuel group (σ = {bandwidt
 plt.show()
 
 
+# %% [markdown]
+# **View.** **TO DO**
+
+# %% [markdown]
+# ### Discussion – Third Iteration
+# **TO DO**
+
+# %% [markdown]
+# ### Data Processing & Visualization
+# **TO DO**
+
+# %% [markdown]
+# ## Iteration 4: Dominant Fuel Group by Ignition Density
+
 # %%
 # Track the highest-density group in each cell, one group at a time (saves memory vs. stacking)
 best = np.zeros((nrows, ncols), dtype="float32")
@@ -546,42 +680,24 @@ ax.set_axis_off()
 plt.show()
 
 
-# %%
-# Save the dominant fuel group map as a GeoTIFF (for QGIS)
-# Raster values: 1–7 = fuel group (in the order of `groups`), 0 = no data (outside CONUS / almost no ignitions)
-# uint8 is needed for an embedded color table, and 0 as nodata keeps the groups starting at 1
-
-
-dominant_out = np.where(dominant >= 0, dominant + 1, 0).astype("uint8")
-dominant_tif_path = DATA_DIR / f"processed/dominant_fuel_group_{bandwidth / 1000:.1f}km_sigma.tif"
-
-with rasterio.open(
-    dominant_tif_path, "w",
-    driver="GTiff",
-    height=nrows, width=ncols,      # same shape as the grid
-    count=1,                        # one band
-    dtype="uint8",
-    crs="EPSG:5070",                # same CRS as everything else
-    transform=grid_transform,       # ties pixels to real-world coordinates
-    nodata=0,
-    compress="deflate",             # mostly empty cells, so this shrinks the file a lot
-) as dst:
-    dst.write(dominant_out, 1)
-    # Color table so QGIS shows the same colors as the matplotlib map (paletted renderer)
-    dst.write_colormap(1, {i + 1: tuple(int(v * 255) for v in to_rgb(c)) + (255,)
-                           for i, c in enumerate(colors)})
-    # Record what each value means inside the file itself
-    dst.update_tags(1, **{str(i + 1): names[g] for i, g in enumerate(groups)})
-    dst.set_band_description(1, "Fuel group with highest natural ignition density")
-
-print(f"Saved {dominant_tif_path}")
-print({i + 1: names[g] for i, g in enumerate(groups)})
-
+# %% [markdown]
+# **View.** **TO DO**
 
 # %% [markdown]
-# ## Fuel availability: proportion of fuel per area in each ecoregion 
+# ### Discussion – Fourth Iteration
+# **TO DO**
+
+# %% [markdown]
+# ### Data Processing & Visualization
+# **TO DO**
+
+# %% [markdown]
+# ## Iteration 5: Ignition Rate by Fuel Group
+
+# %% [markdown]
+# ### Fuel availability: area of each fuel type in each ecoregion 
 #
-# Ignition counts alone favor fuels that cover a lot of ground. To idetify which fuels are most
+# Ignition counts alone favor fuels that cover a lot of ground. To identify which fuels are most
 # receptive to ignition, we need the area of each fuel class inside each ecoregion to create a normalized scale. Then
 # compare ignitions to that area (ignitions per km² of fuel).
 #
@@ -608,7 +724,7 @@ else:
     # Create a running totals array that has space for each ecoregion/fuel pair
     pair_totals = np.zeros(256 * 256, dtype="int64")
 
-    # Create a double for-loop to step through the fuel-class raster one pixel at a time
+    # Create a double for-loop to step through the fuel-class raster one window (4096 x 4096 pixels) at a time
     for row_off in range(0, fuelClass.height, window_size):
         for col_off in range(0, fuelClass.width, window_size):
             # Window(col_off, row_off, width, height); min() trims the last windows at the right/bottom edges
@@ -618,7 +734,7 @@ else:
 
             # Window_bounds converts the pixels into geographic coordinates in meters
             window_box = box(*window_bounds(window, fuelClass.transform))
-            # Which eco region does this pixel fall in? Returns T/F
+            # Which ecoregions overlap this window? Returns T/F for each ecoregion
             overlapping = ecoregion.geometry.intersects(window_box)
             if not overlapping.any():
                 continue   # window is entirely ocean / Canada / Mexico: nothing to count, skip the read
@@ -661,7 +777,7 @@ print(fuel_area.groupby("FUEL_GROUP")["area_km2"].sum().sort_values(ascending=Fa
 
 
 # %% [markdown]
-# ## Which fuels are most receptive to ignition?
+# ### Which fuels are most receptive to ignition?
 #
 # Ignition rate = natural ignitions on a fuel group ÷ area of that fuel group ÷ number of years, expressed as ignitions per 1,000 km² of fuel per year. This normalizes ignitions by how much of each fuel exists across CONUS, so a fuel isn't rewarded just for covering a lot of ground.
 
@@ -712,6 +828,18 @@ ax.set_title(f"Ignition rate by fuel group, CONUS {1992}–{2024}")
 ax.spines[["top", "right"]].set_visible(False)
 plt.tight_layout()
 plt.show()
+
+
+# %% [markdown]
+# **Figure.** **TO DO**
+
+# %% [markdown]
+# ### Discussion – Final Iteration
+# **TO DO**
+
+# %% [markdown]
+# ### Data Processing & Visualization
+# **TO DO**
 
 
 # %% [markdown]
@@ -1039,36 +1167,14 @@ save(dashboard, filename=OUTPUT_DIR / "ecoregion_fuel_dashboard.html",
      title="Natural ignitions by ecoregion and fuel group")
 
 
-# %%
-# ============================================================
-# LIGHTNING DATA — on hold and ready to uncomment when revisited
-# ============================================================
+# %% [markdown]
+# ### Conclusion
+# **TO DO**
 
-# --- Acquisition (already run once; files already exist locally) ---
-# # %pip install earthaccess
-# import earthaccess
+# %% [markdown]
+# ### Future Work
+# **TO DO**
 
-# earthaccess.login(strategy="interactive", persist=True)
-
-# results = earthaccess.search_data(
-#     short_name="glmmth",
-#     temporal=("2019-01-01", "2024-12-31"),
-# )
-# files = earthaccess.download(results, "work/Project2/data")
-
-# --- Processing: crop each file to CONUS, sum 12 months, sum both years ---
-# import glob
-# import xarray as xr
-
-# files = sorted(glob.glob(str(DATA_DIR / "glmmth/GLMc_th_*.nc")))
-
-# def load_and_crop(path):
-#     ds = xr.open_dataset(path)
-#     ds = ds.assign_coords(lat=("nlat", ds.lat.values), lon=("nlon", ds.lon.values))
-#     ds = ds.swap_dims({"nlat": "lat", "nlon": "lon"})
-#     lat_vals = ds.lat.values
-#     lat_slice = slice(24, 50) if lat_vals[0] < lat_vals[-1] else slice(50, 24)
-#     return ds.sel(lat=lat_slice, lon=slice(-125, -66))
-
-# datasets = [load_and_crop(f) for f in files]
-# lightning = sum(ds.thunder_hours.sum(dim="nmon") for ds in datasets)
+# %% [markdown]
+# ### AI Appendix
+# **TO DO**
