@@ -20,7 +20,7 @@
 #
 # **Class:** CSCI 502: Geospatial Data Science  
 #
-# **Date:** 10/6/2026
+# **Date:** 10/12/2026
 
 # %% [markdown]
 # ## Introduction
@@ -32,15 +32,15 @@
 # Between 2018 and 2020, does the rate at which lightning strikes convert into wildfire ignitions vary by fuel type across the ecoregions of the contiguous United States, independent of raw lightning exposure?
 #
 # ##### Revised Research Question:
-# Between 1992 and 2024, how are naturally occurring wildfires distributed across ecoregions and which fuel types have the highest natural ignition rates relative to the area they cover? 
+# Between 1992 and 2024, how are natural wildfire ignitions distributed across fuel types in CONUS, which fuel types are most susceptible to natural ignitions relative to the area they cover, and how does each ecoregion's mix of fuels explain differences in ignition density between ecoregions?
 
 # %% [markdown]
-# ### Hypothesis:
+# ##### Revised Hypothesis:
 #
 # Between 1992 and 2024, natural wildfire ignitions across CONUS are not distributed randomly - they are concentrated in specific fuel types. Timber-understory fuels, which combine forest litter with grass and shrubs in the understory, will be the most susceptible to natural ignitions relative to the area they cover. Differences in ignition density between ecoregions will be driven mainly by the mix of fuels each ecoregion contains.
 
 # %% [markdown]
-# # Data:
+# ## Data:
 #
 # 1. [Spatial wildfire occurrence data for the United States, 1992-2024 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
 #    - Federal, State and Local fire data aggregated
@@ -189,6 +189,7 @@ from sklearn.neighbors import KernelDensity
 # Plotting
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, LogNorm, to_rgb
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon, Rectangle
 
 DATA_DIR = Path("../data")
@@ -205,7 +206,7 @@ DATA_DIR = Path("../data")
 
 # %%
 # Fire occurrence (7th edition, reprojected to Albers)
-# Cache paths so we don't have to recompute everytime we open a the notebook
+# Cache paths so we don't have to recompute every time we open the notebook
 fire_cache_path = DATA_DIR / "processed/fire_occurrence_7th_albers.gpkg"
 
 if fire_cache_path.exists():
@@ -262,7 +263,7 @@ print(ecoregion.isnull().sum())
 print(fuel_lookup.isnull().sum())
 
 # %%
-# Simplify the Fire Occurance Dataset to suit the needs of the analysis
+# Simplify the Fire Occurrence Dataset to suit the needs of the analysis
 # Cleaned data is free of empty/NaN values
 fire_clean = fire  # already limited to these columns at load
 
@@ -331,14 +332,100 @@ print(natural_ignitions.loc[dropped, "FUEL_CLASS"].value_counts())
 natural_ignitions = natural_ignitions[~dropped].copy()
 
 # %% [markdown]
+# ### Fuel availability: area of each fuel type in each ecoregion 
+#
+# Ignition counts alone favor fuels that cover a lot of ground. To identify which fuels are most
+# receptive to ignition, we need the area of each fuel class inside each ecoregion to create a normalized scale. Then
+# compare ignitions to that area (ignitions per km² of fuel).
+#
+# The 30 m fuel raster has far too many pixels to load at once so we will batch process them,
+# For each batch:
+# 1. read the fuel codes
+# 2. turn the ecoregion polygons into a matching array, so every pixel has a tag that corresponds to its ecoregion
+# 3. count every (ecoregion, fuel class) pair and add it to a running total
+
+# %%
+# Before we normalize we need to count the number of fuel-type pixels that fall within each ecoregion. This is what 
+# we will do below
+
+# Lookup from fuel code to its FBFM40 label (e.g. 102 -> "GR2"), used to group fuel classes
+code_to_label = dict(zip(fuel_lookup["VALUE"], fuel_lookup["FBFM40"]))
+
+fuel_area_cache_path = DATA_DIR / "processed/fuel_area_by_ecoregion.csv"
+
+if fuel_area_cache_path.exists():
+    fuel_area = pd.read_csv(fuel_area_cache_path)
+else:
+    window_size = 4096  
+
+    # Ecoregion codes are stored as text and rasterize needs numbers, so convert text to ints
+    eco_codes = ecoregion["US_L3CODE"].astype(int)
+
+    # Create a running totals array that has space for each ecoregion/fuel pair
+    pair_totals = np.zeros(256 * 256, dtype="int64")
+
+    # Create a double for-loop to step through the fuel-class raster one window (4096 x 4096 pixels) at a time
+    for row_off in range(0, fuelClass.height, window_size):
+        for col_off in range(0, fuelClass.width, window_size):
+            # Window(col_off, row_off, width, height); min() trims the last windows at the right/bottom edges
+            window = Window(col_off, row_off,
+                            min(window_size, fuelClass.width - col_off),
+                            min(window_size, fuelClass.height - row_off))
+
+            # Window_bounds converts the pixels into geographic coordinates in meters
+            window_box = box(*window_bounds(window, fuelClass.transform))
+            # Which ecoregions overlap this window? Returns T/F for each ecoregion
+            overlapping = ecoregion.geometry.intersects(window_box)
+            if not overlapping.any():
+                continue   # window is entirely ocean / Canada / Mexico: nothing to count, skip the read
+
+            # 1. Fuel codes for this window (int16 array, -9999 = no data)
+            fuel = fuelClass.read(1, window=window)
+
+            # 2. Ecoregion code for each pixel in the same window (0 = outside every ecoregion)
+            #  Converts polygons into a grid of pixels. Input = geom and value, return = array where every pixel falling
+            # within that shape is assigned the shape's value
+            eco = rasterize(zip(ecoregion.geometry[overlapping], eco_codes[overlapping]),
+                            out_shape=fuel.shape,
+                            transform=fuelClass.window_transform(window),
+                            fill=0, dtype="uint8")
+
+            # 3. Keep pixels that are inside an ecoregion and have fuel data, then count each pair
+            valid = (eco > 0) & (fuel != -9999)
+            keys = eco[valid].astype("int32") * 256 + fuel[valid]
+            pair_totals += np.bincount(keys, minlength=pair_totals.size)   # bincount = how many times each key appears
+
+    # Turn the non-zero slots back into a table: key // 256 = ecoregion, key % 256 = fuel class
+    keys = np.nonzero(pair_totals)[0]
+    fuel_area = pd.DataFrame({"US_L3CODE": keys // 256,
+                              "FUEL_CLASS": keys % 256,
+                              "pixels": pair_totals[keys]})
+    fuel_area.to_csv(fuel_area_cache_path, index=False)   # slow step runs once, then it's cached
+
+# Each pixel is 30 m x 30 m = 900 m² = 0.0009 km²
+fuel_area["area_km2"] = fuel_area["pixels"] * 900 / 1e6
+
+# Same fuel grouping as the fires: two-letter FBFM40 prefix (fuel-class group)
+# other non-burnable classes (urban, snow/ice, water, barren) get no group
+fuel_labels = fuel_area["FUEL_CLASS"].map(code_to_label)
+fuel_area["FUEL_GROUP"] = fuel_labels.str[:2].replace({"NB": None})
+fuel_area.loc[fuel_labels == "NB3", "FUEL_GROUP"] = "Ag"
+
+# Sanity check: the total should be close to the area of CONUS minus the Great Lakes, which the
+# ecoregions leave out (~8.1 million km² - ~0.24 million km² ≈ 7.8 million km²)
+print(f"Total area counted: {fuel_area['area_km2'].sum():,.0f} km²")
+print(fuel_area.groupby("FUEL_GROUP")["area_km2"].sum().sort_values(ascending=False).round(0))
+
+
+# %% [markdown]
 # ### Data Cleaning Discussion:
 #
-# **Fire Occurance Data** 
+# **Fire Occurrence Data** 
 #
 # - Filtered to NWCG_Cause_Classification == "Natural"
 # - Clipped to CONUS through spatial join (point-in-polygon)
 # - Fire tagged with fuel class (30 m pixel) at its location
-# - Removed fires that were tagged with (NB1), snow/ice (NB2), water (NB8), barren (NB9), slash-blowdown (SB1–SB4) or no-data fuel
+# - Removed fires that were tagged with urban (NB1), snow/ice (NB2), water (NB8), barren (NB9), slash-blowdown (SB1–SB4) or no-data fuel
 #
 # **Ecoregions (EPA Level III)**
 #
@@ -357,11 +444,84 @@ natural_ignitions = natural_ignitions[~dropped].copy()
 # **View 1.** Natural-cause wildfire ignitions across CONUS, before non-burnable and slash-blowdown fires were removed. Each point is one ignition, colored by the LANDFIRE FBFM40 fuel class at its location. White lines are EPA Level III ecoregion boundaries.
 
 # %% [markdown]
-# ### Discussion - Overview
+# ### Discussion – Overview
 # This preliminary visualization shows only broad trends in ignitions by fuel type across CONUS. The sheer number of points makes it difficult to see patterns finer than the landscape scale. As expected, ignitions are concentrated in the West, specifically the Great Basin, the Northern and Middle Rockies, the Colorado Plateau, and the Arizona/New Mexico mountains, and they taper off toward the Midwest. Interestingly, Florida stands out as a hotspot in the East, possibly because of frequent lightning producing many small fires. Fuel classes at ignition points change clearly across ecoregions and often line up with ecoregion boundaries, which supports comparing ignitions by ecoregion. However, raw ignition counts can make a fuel type look dominant simply because it covers more area than other fuels, which shows the need to normalize ignition rates by fuel area. Finally, some ignitions fall on non-burnable fuel types, likely reflecting the ~1 mi² location accuracy of the fire records. Those records were removed during data cleaning.
 
 # %% [markdown]
 # ## Iteration 1: Kernel Density of Natural Ignitions
+
+# %%
+# ---- Map elements used on the maps: scale bar, north arrow, projection / data sources box ----
+# All positions are in map units (meters, EPSG:5070) unless noted.
+
+def add_scalebar(ax, x0, y0, length_km=500, n_segments=4, height_km=30,
+                 label_every_segment=False, labels_above=False, fill=("black", "white"), color="black"):
+    """Alternating black/white scale bar, lower-left corner at (x0, y0).
+    label_every_segment=True labels every segment boundary (0, 250, 500, ...) like the overview map;
+    otherwise only the start, middle and end. labels_above=True puts the labels above the bar.
+    fill: the two alternating segment colors; color: outline and label color (for dark maps)."""
+    seg = length_km * 1000 / n_segments                       # one segment's length in meters
+    for i in range(n_segments):
+        ax.add_patch(Rectangle((x0 + i * seg, y0), seg, height_km * 1000,
+                               facecolor=fill[i % 2],                         # alternate colors
+                               edgecolor=color, linewidth=0.8, zorder=5))
+    # Where the labels go: every segment boundary, or start / middle / end
+    if label_every_segment:
+        ticks = [i * length_km / n_segments for i in range(n_segments + 1)]
+    else:
+        ticks = [0, length_km / 2, length_km]
+    # Labels sit just above or just below the bar
+    if labels_above:
+        label_y, va = y0 + height_km * 1000 * 1.5, "bottom"
+    else:
+        label_y, va = y0 - height_km * 1000 * 0.5, "top"
+    for km in ticks:
+        ax.text(x0 + km * 1000, label_y, f"{km:,g}", ha="center", va=va, fontsize=9, color=color, zorder=5)
+    # "km" right after the end number, on the same line. It's offset in points (not meters) from the
+    # bar's end: about half the width of the end number + a small gap, so the number stays centered on its tick
+    end_label = f"{length_km:,g}"
+    ax.annotate("km", xy=(x0 + length_km * 1000, label_y),
+                xytext=(0.3 * 9 * len(end_label) + 2.5, 0), textcoords="offset points",
+                ha="left", va=va, fontsize=9, color=color, zorder=5)
+
+def add_compass(ax, cx, cy, radius_km=90, style="arrow", fg="black", bg="white"):
+    """North indicator centered at (cx, cy) in map units.
+    style="arrow":   simple arrowhead, half black / half white, with N above it
+    style="compass": 4-point compass rose, each point half black / half white
+    fg / bg replace black / white (fg also colors the outline and the N), e.g. for dark maps.
+    """
+    r = radius_km * 1000          # length of each point
+    w = r * 0.22                  # half-width of each point at its base
+    if style == "arrow":
+        # One tall arrowhead: tip at the top, notched base so it reads as an arrow, not a triangle
+        tip, base_y, notch = (cx, cy + r), cy - r, (cx, cy - r * 0.55)
+        w = r * 0.4
+        ax.add_patch(Polygon([tip, (cx - w, base_y), notch], facecolor=fg, edgecolor=fg, lw=0.8, zorder=5))
+        ax.add_patch(Polygon([tip, (cx + w, base_y), notch], facecolor=bg, edgecolor=fg, lw=0.8, zorder=5))
+    else:
+        # Each point = two triangles from the center: (tip, side) gives one half of the point
+        for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:          # N, E, S, W
+            tip = (cx + dx * r, cy + dy * r)
+            left = (cx - dy * w, cy + dx * w)                       # perpendicular offsets at the base
+            right = (cx + dy * w, cy - dx * w)
+            ax.add_patch(Polygon([(cx, cy), left, tip], facecolor=fg, edgecolor=fg, lw=0.8, zorder=5))
+            ax.add_patch(Polygon([(cx, cy), right, tip], facecolor=bg, edgecolor=fg, lw=0.8, zorder=5))
+    ax.text(cx, cy + r * 1.1, "N", ha="center", va="bottom", fontsize=13, fontweight="bold", color=fg, zorder=5)
+
+def add_projection_box(ax, sources=None, x=0.0, y=-0.02, color="black", facecolor="white"):
+    """Projection (and optional data sources) box, same wording as the overview map.
+    x, y are in axes fractions (0–1); the default hangs the box just below the map's lower-left corner.
+    sources: list of "Label: citation" strings; leave out to show only the projection.
+    color: text color; facecolor: box fill (for dark maps)."""
+    lines = [r"$\bf{Projection}$",
+             "North American Datum of 1983 / Conus Albers Equal Area Conic",
+             "Standard parallels 29.5° N, 45.5° N • Central meridian 96° W • Latitude of origin 23° N •",
+             "Units: meters"]
+    if sources:
+        lines += ["", r"$\bf{Data\ sources}$"] + sources
+    return ax.text(x, y, "\n".join(lines), transform=ax.transAxes, ha="left", va="top", fontsize=8,
+                   color=color, linespacing=1.4,
+                   bbox=dict(facecolor=facecolor, edgecolor="0.5", boxstyle="square,pad=0.8"))
 
 # %%
 # Cross-validate KDE bandwidth (σ)
@@ -442,7 +602,7 @@ print(f"Most fires in one cell: {fire_counts.max()}")
 # Step 3: Gaussian KDE of natural ignitions on the 1 km grid
 bandwidth = round(best_bandwidth, -2)  # kernel standard deviation (σ) in meters, from cross-validation
 sigma_cells = bandwidth / cell_size    # gaussian_filter works in cells, not meters -> 5.1 cells
-                                       # 68% of each fire's weight stays within ~5 km of it and about 95% within ~10 km
+                                       # in 2-D, about 39% of each fire's weight stays within 1σ (~5 km) of it and about 86% within 2σ (~10 km)
 
 density = gaussian_filter(
     fire_counts.astype("float32"),     # input grid (must be float)
@@ -462,8 +622,27 @@ fig, ax = plt.subplots(figsize=(12, 8))
 im = ax.imshow(density, extent=(xmin, xmin + ncols * cell_size, ymax - nrows * cell_size, ymax),
                cmap="YlOrRd", norm=LogNorm(vmin=1e-3, vmax=np.nanmax(density)))
 ecoregion.boundary.plot(ax=ax, color="0.3", linewidth=0.3)
-fig.colorbar(im, ax=ax, shrink=0.6, label="Natural ignitions per km² (1992–2024)")
-ax.set_title(f"Kernel density of natural ignitions (Gaussian, σ = {bandwidth / 1000:.1f} km)")
+cbar = fig.colorbar(im, ax=ax, shrink=0.6, label="Natural ignitions per km² (1992–2024)")
+ax.set_title(f"Kernel Density of Natural Ignitions, 1992–2024 (Gaussian, σ = {bandwidth / 1000:.1f} km)", fontsize=16)
+
+# Map elements laid out like the overview map: 1,000 km scale bar (labels above) in the lower left
+# with the projection box below it, north arrow below the colorbar in the bottom-right corner
+x_lo, x_hi = ax.get_xlim()
+y_lo, y_hi = ax.get_ylim()
+add_scalebar(ax, x_lo + 0.02 * (x_hi - x_lo), y_lo + 0.04 * (y_hi - y_lo), length_km=1000,
+             n_segments=4, height_km=25, label_every_segment=True, labels_above=True)
+add_projection_box(ax)
+
+# North arrow: its own small axes centered under the colorbar (positions in figure fractions)
+fig.canvas.draw()                     # settle the layout so the colorbar's final position is known
+cb = cbar.ax.get_position()
+arrow_ax = fig.add_axes([cb.x0 + cb.width / 2 - 0.03, cb.y0 - 0.16, 0.06, 0.11])
+arrow_ax.set_xlim(-150_000, 150_000)
+arrow_ax.set_ylim(-100_000, 150_000)
+arrow_ax.set_aspect("equal")
+add_compass(arrow_ax, 0, 0)
+arrow_ax.set_axis_off()
+
 ax.set_axis_off()
 plt.show()
 
@@ -475,19 +654,19 @@ plt.show()
 # %% [markdown]
 # ### Discussion – First Iteration
 #
-# Wildfire ignitions are heavily concentrated, with clear boundaries in particular ecoregions in the West and Southeast. About half of the   319,148 natural ignitions (~159,500) fall within just 401,247 km², or 5.1% of CONUS, and 80% (~255,300) fall within 1,237,645 km², or 15.8% of CONUS. The highest mean density of ignitions is in the Southwest, in the Arizona/New Mexico Mountains ecoregion, with nearly 0.3 ignitions/km². High-density bands closely follow ecoregion boundaries in the Cascades, Sierra Nevada, Blue Mountains, Idaho Batholith, and Northern Rockies - all five lie within the same Western Cordillera Level II ecoregion. These regions share forest fuel types in elevated terrain that sees frequent summer thunderstorms. Also noteworthy, Florida is an outlier compared to its East Coast neighbors, and a clear hotspot exists in the Black Hills of South Dakota (Middle Rockies ecoregion). Raw density doesn't tell us enough about fuel groups to draw any definitive conclusions - although we can see that many of the western hotspots are in areas dominated by the timber understory and timber litter fuel groups.
+# Wildfire ignitions are heavily concentrated, with clear boundaries in particular ecoregions in the West and Southeast. About half of the 319,148 natural ignitions (~159,500) fall within just 401,247 km², or 5.1% of CONUS, and 80% (~255,300) fall within 1,237,645 km², or 15.8% of CONUS. The highest mean density of ignitions is in the Southwest, in the Arizona/New Mexico Mountains ecoregion (Upper Gila Mountains Level II ecoregion), with nearly 0.3 ignitions/km². High-density bands closely follow ecoregion boundaries in the Cascades, Sierra Nevada, Blue Mountains, Idaho Batholith, and Northern Rockies - all five lie within the same Western Cordillera Level II ecoregion. These regions share forest fuel types in elevated terrain that sees frequent summer thunderstorms. Also noteworthy, Florida is an outlier compared to its East Coast neighbors, and a clear hotspot exists in the Black Hills of South Dakota (Middle Rockies ecoregion). Raw density doesn't tell us enough about fuel groups to draw any definitive conclusions - although we can see that many of the western hotspots are in areas dominated by the timber understory and timber litter fuel groups.
 
 # %% [markdown]
 # ### Data Processing & Visualization
 #
 # **Kernel Density & Rasterizing**
 #
-# continuous data. Choosing a function and the appropriate bandwidth to use in the KDE are the two most important design features when implementing a KDE. A Gaussian curve is a function that generally works well with a variety of data. The bandwidth to choose for the Gaussian is less straightforward and requires its own analysis. Using grid search cross-validation to find the optimal bandwidth is one approach to optimizing this value. For each candidate bandwidth (σ), cross-validation splits the fires into 5 random groups (folds) and fits a Gaussian KDE on 4 of the 5 groups, holding out the 5th for validation. It scores the bandwidth on the held-out fold by comparing the density of the KDE to where the validation group's fires actually fall, using log-likelihood. Higher scores correspond to KDEs that capture the distribution more accurately. This process repeats 5 times so each group is held out once, then the log-likelihood scores are averaged. This approach penalizes bandwidths that are too small because the Gaussian is a narrow spike over each fire occurrence - held-out fires that fall outside the spikes are given a density of ~0. The log of a density close to 0 is a large negative value - a few fires in the gaps between the curves drag the average score way down. This results in the KDE memorizing the training data and overfitting. On the contrary, a very large bandwidth over each fire occurrence doesn't capture areas where hotspots exist because the peaks have been flattened - resulting in a blurred distribution and underfitting. Grid search is implemented twice in conjunction with cross-validation - first, 12 values from 2 - 30 km were tested, then 7 values around the winner of the first grid search - the result was a 5.1 km bandwidth.
+# Creating a rasterized map of natural wildfire ignitions from point features first requires smoothing the data and taking it from discrete to continuous data. Choosing a function and the appropriate bandwidth to use in the KDE are the two most important design features when implementing a KDE. A Gaussian curve is a function that generally works well with a variety of data. The bandwidth to choose for the Gaussian is less straightforward and requires its own analysis. Using grid search cross-validation to find the optimal bandwidth is one approach to optimizing this value. For each candidate bandwidth (σ), cross-validation splits the fires into 5 random groups (folds) and fits a Gaussian KDE on 4 of the 5 groups, holding out the 5th for validation. It scores the bandwidth on the held-out fold by comparing the density of the KDE to where the validation group's fires actually fall, using log-likelihood. Higher scores correspond to KDEs that capture the distribution more accurately. This process repeats 5 times so each group is held out once, then the log-likelihood scores are averaged. This approach penalizes bandwidths that are too small because the Gaussian is a narrow spike over each fire occurrence - held-out fires that fall outside the spikes are given a density of ~0. The log of a density close to 0 is a large negative value - a few fires in the gaps between the curves drag the average score way down. This results in the KDE memorizing the training data and overfitting. On the contrary, a very large bandwidth over each fire occurrence doesn't capture areas where hotspots exist because the peaks have been flattened - resulting in a blurred distribution and underfitting. Grid search is implemented twice in conjunction with cross-validation - first, 12 values from 2 - 30 km were tested, then 7 values around the winner of the first grid search - the result was a 5.1 km bandwidth.
 #
 # After the optimal bandwidth was found, a 1 km grid over CONUS was created and all fires within each cell were summed. The KDE was then run with the optimal bandwidth across the centroid of each grid cell and its corresponding fire occurrence count. The optimal bandwidth was chosen from each fire occurrence rather than the sum of fires per 1 km grid cell - summing fires per cell shifts each fire to the center of its cell, which is a very small shift compared to the 5 km width of the Gaussian. This results in a map that is only slightly smoother than one built from each fire occurrence, so the difference is negligible. Also, by summing fire counts per pixel we aren't losing any nuance in the fire occurrence dataset because the points within that dataset are only accurate within ~1 mi². The resulting KDE is much less expensive to rasterize than if it were smoothed over each fire occurrence point.
 
 # %% [markdown]
-# ## Iteration 2: Natural Ignitions per 1,000 km² by Ecoregion
+# ## Iteration 2: Natural Ignitions per 1,000 km² of Fuel by Ecoregion
 
 # %%
 # Natural ignitions per ecoregion
@@ -495,76 +674,76 @@ ignitions = natural_ignitions.groupby("US_L3CODE").size()
 # Create a new col of ignitions per ecoregion
 ecoregion["ignitions"] = ecoregion["US_L3CODE"].map(ignitions).fillna(0)
 
-# .area is in meters squared - divide by 1e9 to get per 1,000 km squared
-# Create a new col that contains the normalized ignition data 
-ecoregion["ign_per_1000km2"] = ecoregion["ignitions"] / (ecoregion.area / 1e9)
+# Normalize by fuel area, not total ecoregion area: only the fuel types kept in the analysis
+# (GR, GS, SH, TU, TL, Ag) count, so urban, water, barren, snow/ice and slash-blowdown land
+# doesn't dilute the rate of ecoregions that contain a lot of it
+fuel_km2 = (fuel_area[fuel_area["FUEL_GROUP"].isin(["GR", "GS", "SH", "TU", "TL", "Ag"])]
+            .groupby("US_L3CODE")["area_km2"].sum())
+ecoregion["fuel_km2"] = ecoregion["US_L3CODE"].astype(int).map(fuel_km2)
+
+# Create a new col that contains the normalized ignition data: ignitions per 1,000 km² of fuel
+ecoregion["ign_per_1000km2"] = ecoregion["ignitions"] / (ecoregion["fuel_km2"] / 1_000)
+
+# Class breaks: the rates span 0.3–316, so each class covers roughly 2–3x the one below,
+# with 4 of the 7 classes above 50 to show detail where ignitions occur. Every break falls in a
+# natural gap between ecoregion rates (e.g. 150 sits in the 141 -> 188 gap).
+# The last break is the maximum rate so every ecoregion falls in a class
+rate_bins = [5, 15, 50, 100, 150, 200, ecoregion["ign_per_1000km2"].max()]
+
+# Colors: one continuous yellow-to-red scale, one color per class
+rate_cmap = ListedColormap(plt.get_cmap("YlOrRd")(np.linspace(0.08, 1, len(rate_bins))))
+
+# Whole-number legend labels like "100–150" (the first class starts at 0)
+rate_labels = [f"{lo:.0f}–{hi:.0f}" for lo, hi in zip([0] + rate_bins[:-1], rate_bins)]
+
+def relabel_legend(ax, labels):
+    """Replace a geopandas legend's default "100.00, 150.00" labels with our own."""
+    for text, label in zip(ax.get_legend().get_texts(), labels):
+        text.set_text(label)
 
 # Plot the data
 fig, ax = plt.subplots(figsize=(12, 8))
-ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd", scheme="quantiles", k=7,
+ecoregion.plot(column="ign_per_1000km2", cmap=rate_cmap,
+               scheme="user_defined", classification_kwds={"bins": rate_bins},
                edgecolor="0.4", linewidth=0.3, legend=True,
-               # Legend placed outside the map: its upper-right corner sits at the axes' lower-left corner
-               # (bbox_to_anchor is in axes fractions), so it can't overlap the CONUS polygons
-               legend_kwds={"title": "Natural ignitions per 1,000 km²",
-                            "loc": "lower right", "bbox_to_anchor": (0.12, 0.0)},
+               # Legend placed outside the map on the right, like the colorbar on the KDE map: its
+               # lower-left corner sits just past the axes' right edge, low in the frame above the north
+               # arrow (bbox_to_anchor is in axes fractions), so it can't overlap the CONUS polygons.
+               # "\n" wraps the title onto two lines; alignment="left" left-aligns the title with the entries
+               # fontsize / title_fontsize / markerscale enlarge the legend text and color dots
+               legend_kwds={"title": "Natural ignitions per\n1,000 km² of fuel", "alignment": "left",
+                            "loc": "lower left", "bbox_to_anchor": (1.01, 0.1),
+                            "fontsize": 12, "title_fontsize": 13, "markerscale": 1.4},
                ax=ax)
-ax.set_title("Natural wildfire ignitions per 1,000 km² by ecoregion, 1992–2024")
+relabel_legend(ax, rate_labels)
+ax.set_title("Natural Wildfire Ignitions per 1,000 km² of Fuel by Ecoregion, 1992–2024", fontsize=16)
 
-
-def add_scalebar(ax, x0, y0, length_km=500, n_segments=4, height_km=30):
-    """Alternating black/white scale bar, drawn in map units (meters), lower-left corner at (x0, y0)."""
-    seg = length_km * 1000 / n_segments                       # one segment's length in meters
-    for i in range(n_segments):
-        ax.add_patch(Rectangle((x0 + i * seg, y0), seg, height_km * 1000,
-                               facecolor="black" if i % 2 == 0 else "white",   # alternate colors
-                               edgecolor="black", linewidth=0.8, zorder=5))
-    # Labels centered under the start, middle and end of the bar
-    for km in (0, length_km / 2, length_km):
-        ax.text(x0 + km * 1000, y0 - height_km * 1000 * 0.5, f"{km:g}",
-                ha="center", va="top", fontsize=9, zorder=5)
-    # "km" right after the end number, on the same line. It's offset in points (not meters) from the
-    # bar's end: about half the width of the end number + a small gap, so "500" stays centered on its tick
-    end_label = f"{length_km:g}"
-    ax.annotate("km", xy=(x0 + length_km * 1000, y0 - height_km * 1000 * 0.5),
-                xytext=(0.3 * 9 * len(end_label) + 2.5, 0), textcoords="offset points",
-                ha="left", va="top", fontsize=9, zorder=5)
-
-def add_compass(ax, cx, cy, radius_km=90, style="arrow"):
-    """North indicator centered at (cx, cy) in map units.
-    style="arrow":   simple arrowhead, half black / half white, with N above it
-    style="compass": 4-point compass rose, each point half black / half white
-    """
-    r = radius_km * 1000          # length of each point
-    w = r * 0.22                  # half-width of each point at its base
-    if style == "arrow":
-        # One tall arrowhead: tip at the top, notched base so it reads as an arrow, not a triangle
-        tip, base_y, notch = (cx, cy + r), cy - r, (cx, cy - r * 0.55)
-        w = r * 0.4
-        ax.add_patch(Polygon([tip, (cx - w, base_y), notch], facecolor="black", edgecolor="black", lw=0.8, zorder=5))
-        ax.add_patch(Polygon([tip, (cx + w, base_y), notch], facecolor="white", edgecolor="black", lw=0.8, zorder=5))
-    else:
-        # Each point = two triangles from the center: (tip, side) gives one half of the point
-        for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:          # N, E, S, W
-            tip = (cx + dx * r, cy + dy * r)
-            left = (cx - dy * w, cy + dx * w)                       # perpendicular offsets at the base
-            right = (cx + dy * w, cy - dx * w)
-            ax.add_patch(Polygon([(cx, cy), left, tip], facecolor="black", edgecolor="black", lw=0.8, zorder=5))
-            ax.add_patch(Polygon([(cx, cy), right, tip], facecolor="white", edgecolor="black", lw=0.8, zorder=5))
-    ax.text(cx, cy + r * 1.1, "N", ha="center", va="bottom", fontsize=13, fontweight="bold", zorder=5)
-
-# Place both in the lower right, using the plotted map's extent (meters, EPSG:5070)
+# Map elements laid out like the KDE map: 1,000 km scale bar (labels above) in the lower left
+# with the projection box below it, north arrow below the legend in the bottom-right corner
 x_lo, x_hi = ax.get_xlim()
 y_lo, y_hi = ax.get_ylim()
-bar_x = x_lo + 0.84 * (x_hi - x_lo)         
-bar_y = y_lo + 0.05 * (y_hi - y_lo)          
-add_scalebar(ax, bar_x, bar_y, length_km=500)
-add_compass(ax, bar_x + 250_000, bar_y + 0.08 * (y_hi - y_lo))   # centered right above the bar's midpoint
+add_scalebar(ax, x_lo + 0.02 * (x_hi - x_lo), y_lo + 0.04 * (y_hi - y_lo), length_km=1000,
+             n_segments=4, height_km=25, label_every_segment=True, labels_above=True)
+proj_box = add_projection_box(ax)
+
+# North arrow: its own small axes centered under the legend, bottom level with the bottom of the
+# projection box, so it sits in the figure's bottom-right corner (positions in figure fractions)
+fig.canvas.draw()                     # settle the layout so the legend and box positions are known
+to_fig = fig.transFigure.inverted()
+leg = ax.get_legend().get_window_extent().transformed(to_fig)
+box_bottom = proj_box.get_bbox_patch().get_window_extent().transformed(to_fig).y0
+arrow_ax = fig.add_axes([leg.x0 + leg.width / 2 - 0.03, box_bottom, 0.06, 0.11])
+arrow_ax.set_xlim(-150_000, 150_000)
+arrow_ax.set_ylim(-100_000, 150_000)
+arrow_ax.set_aspect("equal")
+add_compass(arrow_ax, 0, 0)
+arrow_ax.set_axis_off()
 
 ax.set_axis_off()
 plt.show()
 
 # %% [markdown]
-# **View.** **TO DO**
+# **View 3.** Natural-cause wildfire ignitions per 1,000 km² of fuel for each EPA Level III ecoregion, 1992–2024. Only the fuel types kept in the analysis (grass, grass-shrub, shrub, timber-understory, timber litter and agriculture) count toward each ecoregion's fuel area. Classes are weighted toward the high end of the data.
 
 # %% [markdown]
 # ### Discussion – Second Iteration
@@ -577,6 +756,11 @@ plt.show()
 # %% [markdown]
 # ## Iteration 3: Spatial Weights & Moran's I
 
+# %% [markdown]
+# Do ecoregions with a lot of natural ignitions sit next to each other, or is the pattern on the map just noise?
+#
+# The first step is to define who is next to whom. We use Queen contiguity on the 85 ecoregions, so two ecoregions are neighbors if they share any part of a boundary. The check below confirms there are no islands and that the average ecoregion has about five neighbors.
+
 # %%
 # Queen contiguity: ecoregions are neighbors if they share any edge or corner
 w = weights.Queen.from_dataframe(ecoregion, use_index=False)
@@ -585,52 +769,58 @@ w.transform = "R"   # row-standardize: each ecoregion's neighbor weights sum to 
 # Number of neighbors for each ecoregion
 ecoregion["n_neighbors"] = pd.Series(w.cardinalities)
 
+# How the neighbor counts are distributed across the 85 ecoregions
+print(ecoregion["n_neighbors"].value_counts().sort_index())
+print()
+
 # Ecoregions with one or two neighbors.
 few = ecoregion[ecoregion["n_neighbors"] <= 2]
 for i, row in few.iterrows():
     neighbor_names = ecoregion.loc[w.neighbors[i], "US_L3NAME"].tolist()
     print(row["US_L3NAME"], "has", row["n_neighbors"], "neighbor(s):", neighbor_names)
 
-# Draw the contiguity graph
-fig, ax = plt.subplots(figsize=(12, 8))
-ecoregion.plot(ax=ax, facecolor="whitesmoke", edgecolor="0.6", linewidth=0.3)
-w.plot(ecoregion, ax=ax,
-       edge_kws={"color": "tab:blue", "linewidth": 0.6},
-       node_kws={"color": "tab:red", "s": 8})
-ax.set_title("Queen contiguity between Level III ecoregions")
-ax.set_axis_off()
-plt.show()
+# %% [markdown]
+# The five ecoregions with only one or two neighbors are either enclosed by a single ecoregion or sit on the coast or the Canadian border, where neighbors outside the data are missing. With row standardized weights, an ecoregion with one neighbor is compared to that single neighbor's rate, which matters later for Southern Florida.
+#
+# The weights are row standardized, so each ecoregion is compared to the average of its neighbors. That average is the spatial lag, computed below.
 
 # %%
 # Spatial lag of the ignition rate
 # Row standardized weights times the rate gives, for each ecoregion, the mean rate of its neighbors.
 ecoregion["lag_rate"] = weights.lag_spatial(w, ecoregion["ign_per_1000km2"].values)
 
-# Use the same 7 quantile breaks from the observed rate on both maps so the colors are comparable
-import mapclassify
-bins = mapclassify.Quantiles(ecoregion["ign_per_1000km2"], k=7).bins
+# Each ecoregion's own rate next to the mean rate of its neighbors
+display(ecoregion[["US_L3NAME", "n_neighbors", "ign_per_1000km2", "lag_rate"]].head(10))
+
+# Use the same class breaks as the Iteration 2 map (rate_bins) on both maps so the colors are comparable
 
 fig, axes = plt.subplots(1, 2, figsize=(18, 7))
 
-ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd",
-               scheme="user_defined", classification_kwds={"bins": bins},
+ecoregion.plot(column="ign_per_1000km2", cmap=rate_cmap,
+               scheme="user_defined", classification_kwds={"bins": rate_bins},
                edgecolor="0.4", linewidth=0.3, legend=True,
-               legend_kwds={"title": "Ignitions per 1,000 km²", "loc": "lower left"},
+               # Legend outside the map so it doesn't overlap the CONUS polygons
+               legend_kwds={"title": "Ignitions per\n1,000 km² of fuel", "alignment": "left",
+                            "loc": "lower right", "bbox_to_anchor": (0.12, 0.0)},
                ax=axes[0])
-axes[0].set_title("Observed rate")
+relabel_legend(axes[0], rate_labels)
+axes[0].set_title("Observed Rate")
 axes[0].set_axis_off()
 
-ecoregion.plot(column="lag_rate", cmap="YlOrRd",
-               scheme="user_defined", classification_kwds={"bins": bins},
+ecoregion.plot(column="lag_rate", cmap=rate_cmap,
+               scheme="user_defined", classification_kwds={"bins": rate_bins},
                edgecolor="0.4", linewidth=0.3, legend=False,
                ax=axes[1])
-axes[1].set_title("Spatial lag: mean rate of Queen neighbors (same classes)")
+axes[1].set_title("Spatial Lag: Mean Rate of Queen Neighbors (Same Classes)")
 axes[1].set_axis_off()
 
 plt.show()
 
 # %% [markdown]
-# **View. TO DO** 
+# **View 4.** Observed ignition rate per 1,000 km² of fuel for each ecoregion (left) next to its spatial lag, the mean rate of its Queen contiguity neighbors (right). Both maps use the same classes and colors as View 3.
+
+# %% [markdown]
+# Next, global Moran's I. The rate is very skewed, from under one to over three hundred, so it is run on the log of the rate. The raw rate is run as well to check that the answer does not depend on the transform.
 
 # %%
 # Global Moran's I on the natural ignition rate
@@ -655,50 +845,46 @@ print("Moran's I, raw rate:", round(mi_raw.I, 3),
       " z:", round(mi_raw.z_sim, 2),
       " p (999 permutations):", mi_raw.p_sim)
 
+# %% [markdown]
+# Global Moran's I only says clustering exists. Local Moran's I says where. Each ecoregion is tested against its own neighbors, and the ones that are significant at 0.05 keep their quadrant label.
+
 # %%
-# Moran scatterplot for the log rate
-# x axis: standardized log rate of each ecoregion
-# y axis: spatial lag of that value
-# With row standardized weights the slope of the line through the origin equals Moran's I.
-z = (log_rate - log_rate.mean()) / log_rate.std()
-lag_z = weights.lag_spatial(w, z)
-ecoregion["z_log_rate"] = z
-ecoregion["lag_z_log_rate"] = lag_z
+# Local Moran's I tests each ecoregion against its own neighbors.
+from esda.moran import Moran_Local
 
-fig, ax = plt.subplots(figsize=(7, 7))
-ax.scatter(z, lag_z, s=25, color="tab:red", edgecolor="0.3", linewidth=0.3)
-x_line = np.array([z.min(), z.max()])
-ax.plot(x_line, mi_log.I * x_line, color="0.2", linewidth=1.5)
-ax.axhline(0, color="0.5", linewidth=0.8, linestyle="--")
-ax.axvline(0, color="0.5", linewidth=0.8, linestyle="--")
+lisa = Moran_Local(log_rate, w, permutations=999, seed=12345)
 
-# Name the ecoregions that sit far from the rest
-for i in range(len(z)):
-    if abs(z[i]) > 2 or abs(lag_z[i]) > 1.5:
-        ax.annotate(ecoregion["US_L3NAME"].iloc[i], (z[i], lag_z[i]),
-                    fontsize=7, xytext=(3, 3), textcoords="offset points")
+# lisa.q gives the Moran quadrant: 1 High-High, 2 Low-High, 3 Low-Low, 4 High-Low
+# lisa.p_sim is the permutation pseudo p value for each ecoregion
+ecoregion["lisa_I"] = lisa.Is
+ecoregion["lisa_p"] = lisa.p_sim
+ecoregion["lisa_q"] = lisa.q
 
-# Quadrant labels
-ax.text(0.98, 0.98, "High-High", transform=ax.transAxes, ha="right", va="top")
-ax.text(0.02, 0.98, "Low-High", transform=ax.transAxes, ha="left", va="top")
-ax.text(0.02, 0.02, "Low-Low", transform=ax.transAxes, ha="left", va="bottom")
-ax.text(0.98, 0.02, "High-Low", transform=ax.transAxes, ha="right", va="bottom")
+# An ecoregion significant at alpha keeps its quadrant label, the rest are Not significant
+alpha = 0.05
+labels = {1: "High-High", 2: "Low-High", 3: "Low-Low", 4: "High-Low"}
+ecoregion["lisa_cluster"] = "Not significant"
+sig = ecoregion["lisa_p"] < alpha
+ecoregion.loc[sig, "lisa_cluster"] = ecoregion.loc[sig, "lisa_q"].map(labels)
 
-ax.set_xlabel("Standardized log ignition rate")
-ax.set_ylabel("Spatial lag of standardized log ignition rate")
-ax.set_title(f"Moran scatterplot, I = {mi_log.I:.3f}, p = {mi_log.p_sim}")
-plt.show()
+# How many ecoregions fall in each cluster type
+print(ecoregion["lisa_cluster"].value_counts())
+print()
+
+# Table of the significant ecoregions, grouped by cluster type and sorted by local I
+lisa_table = ecoregion.loc[sig, ["US_L3CODE", "US_L3NAME", "ign_per_1000km2", "lag_rate",
+                                 "lisa_I", "lisa_p", "lisa_cluster"]]
+lisa_table = lisa_table.sort_values(["lisa_cluster", "lisa_I"], ascending=[True, False])
+display(lisa_table)
 
 # %% [markdown]
-# **Figure.** **TO DO**
+# Nineteen ecoregions come out High-High, and they form one block across the interior West, from the Cascades and the Northern Rockies down to the Colorado Plateau and the Mojave. Fifteen come out Low-Low across the Corn Belt and the central plains. The Sonoran desert is the one Low-High, a low spot inside the western cluster. No ecoregion is High-Low.
 
 # %% [markdown]
 # ### Discussion – Third Iteration
-# **TO DO**
-
-# %% [markdown]
-# ### Data Processing & Visualization
-# **TO DO**
+# The spatial statistics confirm what the choropleth suggests by eye. Natural ignition rates are not scattered at random across ecoregions. Global Moran's I on the log of the rate is 0.616 with a permutation p value of 0.001, and the local results put 19 ecoregions in one High-High block across the interior West and 15 in a Low-Low block across the Corn Belt and the central plains. For the research question this means the distribution of natural fires is organized at a scale larger than a single ecoregion. Neighboring ecoregions tend to share the same fire regime, which points to drivers that cross ecoregion boundaries, such as summer lightning and terrain, rather than something unique to each region.
+#
+# A few limits matter for reading these results. The analysis works at the ecoregion level, so it says nothing about variation inside an ecoregion, and ecoregions differ greatly in size, which is a modifiable areal unit problem. The weights stop at the national border, so ecoregions on the coast or along Canada have fewer neighbors than they really do. Southern Florida shows this clearly. It has one of the highest rates in the East but only one neighbor, so the local test has almost no power there and it is not flagged. With 85 local tests at a cutoff of 0.05 a few of the significant ecoregions are expected to be false positives, and a couple of the High-High members, such as the Columbia Plateau, are in the cluster because of their neighbors rather than their own rate.
 
 # %% [markdown]
 # ## Iteration 4: Natural Ignition Density by Fuel Group
@@ -739,19 +925,68 @@ names = {"GR": "Grass", "GS": "Grass-shrub", "SH": "Shrub", "TU": "Timber-unders
 extent = (xmin, xmin + ncols * cell_size, ymax - nrows * cell_size, ymax)
 norm = LogNorm(vmin=1e-3, vmax=max(np.nanmax(d) for d in density_by_group.values()))
 
-fig, axes = plt.subplots(2, 3, figsize=(16, 8))   # 6 groups -> 2 rows x 3 columns
-for ax, g in zip(axes.flat, groups):
-    im = ax.imshow(density_by_group[g], extent=extent, cmap="YlOrRd", norm=norm)
-    ecoregion.boundary.plot(ax=ax, color="0.4", linewidth=0.2)
-    ax.set_title(f"{names[g]} ({(natural_ignitions['FUEL_GROUP'] == g).sum():,} fires)")
+# Densities below 0.001 per km² (including zero) are drawn transparent so the grey CONUS fill
+# underneath shows through: grey = (almost) no ignitions, pale yellow = few ignitions
+panel_cmap = plt.get_cmap("YlOrRd").copy()
+panel_cmap.set_under("none")
+
+# 6 groups -> 2 rows x 3 columns. Figure size and small gaps are chosen so the wide CONUS maps
+# fill their panels; right=0.9 leaves room for the colorbar
+fig, axes = plt.subplots(2, 3, figsize=(15, 7))
+fig.subplots_adjust(left=0.01, right=0.9, top=0.87, bottom=0.03, wspace=0.03, hspace=0.2)
+for ax, g, letter in zip(axes.flat, groups, "abcdef"):
+    # zorder stacks the layers: grey CONUS fill, then density, then light, thin ecoregion lines
+    ecoregion.plot(ax=ax, color="0.88", linewidth=0, zorder=1)
+    im = ax.imshow(density_by_group[g], extent=extent, cmap=panel_cmap, norm=norm, zorder=2)
+    ecoregion.boundary.plot(ax=ax, color="0.6", linewidth=0.12, zorder=3)
+    # Panel letter and group name, with the fire count on a smaller second line just below it
+    ax.set_title(f"({letter}) {names[g]}", fontsize=12, pad=14)
+    ax.text(0.5, 1.0, f"{(natural_ignitions['FUEL_GROUP'] == g).sum():,} fires", transform=ax.transAxes,
+            ha="center", va="bottom", fontsize=9, color="0.35")
     ax.set_axis_off()
-fig.colorbar(im, ax=axes, shrink=0.6, label="Natural ignitions per km² (1992–2024)")
-fig.suptitle(f"Kernel density of natural ignitions by fuel group (σ = {bandwidth / 1000:.1f} km)")
+fig.suptitle(f"Kernel Density of Natural Ignitions by Fuel Group, 1992–2024 (σ = {bandwidth / 1000:.1f} km)",
+             fontsize=16)
+
+# One set of map elements for the whole figure: scale bar below the maps in the bottom-left corner
+# with the projection box under it, colorbar the full height of both rows, north arrow below the colorbar
+fig.canvas.draw()                     # settle the layout so the panel positions are known
+to_fig = fig.transFigure.inverted()
+
+# The scale bar gets its own strip of axes just below panel (d), with the same width and x/y limits
+# per figure fraction as the panel, so 1,000 km on the bar is 1,000 km on the maps
+panel = axes[1, 0].get_position()
+x_lo, x_hi = axes[1, 0].get_xlim()
+y_lo, y_hi = axes[1, 0].get_ylim()
+strip_h = 0.05                                                   # strip height in figure fractions
+sb_ax = fig.add_axes([panel.x0, panel.y0 - strip_h, panel.width, strip_h])
+sb_ax.set_xlim(x_lo, x_hi)
+sb_ax.set_ylim(0, strip_h * (y_hi - y_lo) / panel.height)        # same meters per figure fraction as the map
+sb_ax.set_axis_off()
+# Labels only at 0 / 500 / 1,000 km: every segment boundary is too crowded at panel size
+add_scalebar(sb_ax, x_lo + 0.02 * (x_hi - x_lo), 0.15 * strip_h * (y_hi - y_lo) / panel.height,
+             length_km=1000, n_segments=4, height_km=25, labels_above=True)
+proj_box = add_projection_box(sb_ax, y=-0.35)                   # hangs just below the scale bar strip
+fig.canvas.draw()                     # settle again so the projection box position is known
+top_panel, bottom_panel = axes[0, 2].get_position(), axes[1, 2].get_position()
+cax = fig.add_axes([top_panel.x1 + 0.015, bottom_panel.y0, 0.012, top_panel.y1 - bottom_panel.y0])
+cbar = fig.colorbar(im, cax=cax, label="Natural ignitions per km² (1992–2024)")
+
+# North arrow: its own small axes centered under the colorbar, bottom level with the bottom of the
+# projection box, so it sits in the figure's bottom-right corner (positions in figure fractions)
+cb = cax.get_position()
+box_bottom = proj_box.get_bbox_patch().get_window_extent().transformed(to_fig).y0
+# min() drops the arrow further if needed so its "N" clears the colorbar's bottom tick label
+arrow_ax = fig.add_axes([cb.x0 + cb.width / 2 - 0.03, min(box_bottom, cb.y0 - 0.13), 0.06, 0.09])
+arrow_ax.set_xlim(-150_000, 150_000)
+arrow_ax.set_ylim(-100_000, 150_000)
+arrow_ax.set_aspect("equal")
+add_compass(arrow_ax, 0, 0)
+arrow_ax.set_axis_off()
 plt.show()
 
 
 # %% [markdown]
-# **View.** **TO DO**
+# **View 5.** Kernel density of natural-cause wildfire ignitions for each fuel group, using the same cross-validated bandwidth as View 2. All panels share one log color scale, so the same color means the same density in every panel. Grey areas have fewer than 0.001 natural ignitions per km². Grey lines are EPA Level III ecoregion boundaries.
 
 # %% [markdown]
 # ### Discussion – Fourth Iteration
@@ -762,7 +997,7 @@ plt.show()
 #
 # **Fuel Grouping**
 #
-# - Extracted fuel groups (GR, GS, SH, TU, TL, NB3) by their two letter prefix
+# - Extracted fuel groups (GR, GS, SH, TU, TL) by their two letter prefix; NB3 (agriculture) became its own group, Ag
 
 
 # %% [markdown]
@@ -782,23 +1017,53 @@ dominant_masked = np.ma.masked_equal(dominant, -1)
 
 colors = ["#e6c84f", "#9cc97a", "#c8743c", "#4fa3a0", "#2f5d3a", "#f2a7b8"]
 
+# Styled like the overview map: dark grey background, bold white title, light map elements
 bg = "#333333"   # dark grey background
+fg = "0.92"      # near-white for text, outlines and map elements
 fig, ax = plt.subplots(figsize=(12, 8), facecolor=bg)   # axis is turned off, so the figure color is what shows
 ax.imshow(dominant_masked, extent=extent, cmap=ListedColormap(colors),
           vmin=-0.5, vmax=len(groups) - 0.5, interpolation="nearest")
 # White outlines: no fuel group color is near-white, so they stand out from both the grey and the cells
 ecoregion.boundary.plot(ax=ax, color="white", linewidth=0.6)
-leg = ax.legend(handles=[Patch(color=c, label=names[g]) for c, g in zip(colors, groups)],
-                loc="lower left", title="Dominant fuel group",
-                facecolor=bg, edgecolor="0.6", labelcolor="white")
-leg.get_title().set_color("white")
-ax.set_title(f"Fuel group with the highest ignition density (σ = {bandwidth / 1000:.1f} km)", color="white")
+ax.set_title(f"Fuel Group with the Highest Ignition Density, 1992–2024 (σ = {bandwidth / 1000:.1f} km)",
+             color="white", fontsize=18, fontweight="bold", pad=16)
+
+# Legend low on the right, just outside the map so it doesn't cover the Southeast: circle markers
+# for each fuel group plus an outlined box for the ecoregion boundaries, like the overview map
+handles = [Line2D([], [], marker="o", linestyle="none", markersize=13, markerfacecolor=c,
+                  markeredgecolor="none", label=names[g]) for c, g in zip(colors, groups)]
+handles.append(Patch(facecolor="none", edgecolor="white", label="Level III ecoregion"))
+leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(1.01, 0.1), title="Dominant fuel group",
+                fontsize=12, title_fontsize=13, alignment="left", labelspacing=0.9,
+                facecolor=bg, edgecolor="0.6", labelcolor=fg, framealpha=1, fancybox=False)
+leg.get_title().set_color(fg)
+
+# Map elements: 1,000 km scale bar (labels above) in the lower left with the projection box below it
+x_lo, x_hi = ax.get_xlim()
+y_lo, y_hi = ax.get_ylim()
+add_scalebar(ax, x_lo + 0.02 * (x_hi - x_lo), y_lo + 0.04 * (y_hi - y_lo), length_km=1000,
+             n_segments=4, height_km=25, label_every_segment=True, labels_above=True,
+             fill=(fg, bg), color=fg)
+proj_box = add_projection_box(ax, color=fg, facecolor=bg)
+
+# North arrow: its own small axes centered under the legend, bottom level with the bottom of the
+# projection box, so it sits in the figure's bottom-right corner (positions in figure fractions)
+fig.canvas.draw()                     # settle the layout so the legend and box positions are known
+to_fig = fig.transFigure.inverted()
+leg_box = leg.get_window_extent().transformed(to_fig)
+box_bottom = proj_box.get_bbox_patch().get_window_extent().transformed(to_fig).y0
+arrow_ax = fig.add_axes([leg_box.x0 + leg_box.width / 2 - 0.03, box_bottom, 0.06, 0.11])
+arrow_ax.set_xlim(-150_000, 150_000)
+arrow_ax.set_ylim(-100_000, 150_000)
+arrow_ax.set_aspect("equal")
+add_compass(arrow_ax, 0, 0, fg=fg, bg=bg)
+arrow_ax.set_axis_off()
 ax.set_axis_off()
 plt.show()
 
 
 # %% [markdown]
-# **View.** **TO DO**
+# **View 6.** Fuel group with the highest natural ignition density in each 1 km cell, based on the fuel-group surfaces in View 5. Cells with almost no ignitions are left blank. White lines are EPA Level III ecoregion boundaries.
 
 # %% [markdown]
 # ### Discussion – Fifth Iteration
@@ -812,91 +1077,9 @@ plt.show()
 # ## Iteration 6: Ignition Rate by Fuel Group
 
 # %% [markdown]
-# ### Fuel availability: area of each fuel type in each ecoregion 
-#
-# Ignition counts alone favor fuels that cover a lot of ground. To identify which fuels are most
-# receptive to ignition, we need the area of each fuel class inside each ecoregion to create a normalized scale. Then
-# compare ignitions to that area (ignitions per km² of fuel).
-#
-# The 30 m fuel raster has far too many pixels to load at once so we will batch process them,
-# For each batch:
-# 1. read the fuel codes
-# 2. turn the ecoregion polygons into a matching array, so every pixel has a tag that corresponds to its ecoregion
-# 3. count every (ecoregion, fuel class) pair and add it to a running total
-
-# %%
-# Before we normalize we need to count the number of fuel-type pixels that fall within each ecoregion. This is what 
-# we will do below
-
-fuel_area_cache_path = DATA_DIR / "processed/fuel_area_by_ecoregion.csv"
-
-if fuel_area_cache_path.exists():
-    fuel_area = pd.read_csv(fuel_area_cache_path)
-else:
-    window_size = 4096  
-
-    # Ecoregion codes are stored as text and rasterize needs numbers, so convert text to ints
-    eco_codes = ecoregion["US_L3CODE"].astype(int)
-
-    # Create a running totals array that has space for each ecoregion/fuel pair
-    pair_totals = np.zeros(256 * 256, dtype="int64")
-
-    # Create a double for-loop to step through the fuel-class raster one window (4096 x 4096 pixels) at a time
-    for row_off in range(0, fuelClass.height, window_size):
-        for col_off in range(0, fuelClass.width, window_size):
-            # Window(col_off, row_off, width, height); min() trims the last windows at the right/bottom edges
-            window = Window(col_off, row_off,
-                            min(window_size, fuelClass.width - col_off),
-                            min(window_size, fuelClass.height - row_off))
-
-            # Window_bounds converts the pixels into geographic coordinates in meters
-            window_box = box(*window_bounds(window, fuelClass.transform))
-            # Which ecoregions overlap this window? Returns T/F for each ecoregion
-            overlapping = ecoregion.geometry.intersects(window_box)
-            if not overlapping.any():
-                continue   # window is entirely ocean / Canada / Mexico: nothing to count, skip the read
-
-            # 1. Fuel codes for this window (int16 array, -9999 = no data)
-            fuel = fuelClass.read(1, window=window)
-
-            # 2. Ecoregion code for each pixel in the same window (0 = outside every ecoregion)
-            #  Converts polygons into a grid of pixels. Input = geom and value, return = array where every pixel falling
-            # within that shape is assigned the shape's value
-            eco = rasterize(zip(ecoregion.geometry[overlapping], eco_codes[overlapping]),
-                            out_shape=fuel.shape,
-                            transform=fuelClass.window_transform(window),
-                            fill=0, dtype="uint8")
-
-            # 3. Keep pixels that are inside an ecoregion and have fuel data, then count each pair
-            valid = (eco > 0) & (fuel != -9999)
-            keys = eco[valid].astype("int32") * 256 + fuel[valid]
-            pair_totals += np.bincount(keys, minlength=pair_totals.size)   # bincount = how many times each key appears
-
-    # Turn the non-zero slots back into a table: key // 256 = ecoregion, key % 256 = fuel class
-    keys = np.nonzero(pair_totals)[0]
-    fuel_area = pd.DataFrame({"US_L3CODE": keys // 256,
-                              "FUEL_CLASS": keys % 256,
-                              "pixels": pair_totals[keys]})
-    fuel_area.to_csv(fuel_area_cache_path, index=False)   # slow step runs once, then it's cached
-
-# Each pixel is 30 m x 30 m = 900 m² = 0.0009 km²
-fuel_area["area_km2"] = fuel_area["pixels"] * 900 / 1e6
-
-# Same fuel grouping as the fires: two-letter FBFM40 prefix (fuel-class group)
-# other non-burnable classes (urban, snow/ice, water, barren) get no group
-fuel_labels = fuel_area["FUEL_CLASS"].map(code_to_label)
-fuel_area["FUEL_GROUP"] = fuel_labels.str[:2].replace({"NB": None})
-fuel_area.loc[fuel_labels == "NB3", "FUEL_GROUP"] = "Ag"
-
-# Sanity check: the total should be close to the area of CONUS (~8.1 million km²)
-print(f"Total area counted: {fuel_area['area_km2'].sum():,.0f} km²")
-print(fuel_area.groupby("FUEL_GROUP")["area_km2"].sum().sort_values(ascending=False).round(0))
-
-
-# %% [markdown]
 # ### Which fuels are most receptive to ignition?
 #
-# Ignition rate = natural ignitions on a fuel group ÷ area of that fuel group ÷ number of years, expressed as ignitions per 1,000 km² of fuel per year. This normalizes ignitions by how much of each fuel exists across CONUS, so a fuel isn't rewarded just for covering a lot of ground.
+# Ignition rate = natural ignitions on a fuel group ÷ area of that fuel group ÷ number of years, expressed as ignitions per 1,000 km² of fuel per year. This normalizes ignitions by how much of each fuel exists across CONUS, so a fuel that covers a greater area isn't favored.
 
 # %%
 # Now that we have the area of each fuel type (per ecoregion, summed here across CONUS),
@@ -905,7 +1088,7 @@ print(fuel_area.groupby("FUEL_GROUP")["area_km2"].sum().sort_values(ascending=Fa
 
 n_years = 2024 - 1992 + 1 
 
-# Ignitions per fuel group (natural_ignitions exclude urban, snow/ice, water, barren, no-data)
+# Ignitions per fuel group (natural_ignitions exclude urban, snow/ice, water, barren, slash-blowdown, no-data)
 ignitions_by_group = natural_ignitions.groupby("FUEL_GROUP").size()
 
 # Fuel area per fuel group, summed over all ecoregions (km²)
@@ -941,14 +1124,14 @@ ax.barh([names[g] for g in plot_df.index],
         color=[group_color[g] for g in plot_df.index],
         edgecolor="0.3", capsize=3)
 ax.set_xlabel("Natural ignitions per 1,000 km² of fuel per year")
-ax.set_title(f"Ignition rate by fuel group, CONUS {1992}–{2024}")
+ax.set_title(f"Ignition Rate by Fuel Group, CONUS 1992–2024")
 ax.spines[["top", "right"]].set_visible(False)            
 plt.tight_layout()
 plt.show()
 
 
 # %% [markdown]
-# **Figure.** **TO DO**
+# **Figure 1.** Natural ignitions per 1,000 km² of fuel per year for each fuel group across CONUS, 1992–2024. Error bars show exact Poisson 95% confidence intervals.
 
 # %% [markdown]
 # ### Discussion – Final Iteration
@@ -960,7 +1143,16 @@ plt.show()
 
 # %% [markdown]
 # ### Conclusion
-# **TO DO**
+#
+# Spatial analysis of the raw ignition distribution and the by-fuel-type distribution shows that natural ignitions are highly concentrated, with hotspots in the forested regions of the Western US and in the Southern Coastal Plain. Six of the top seven ecoregions lie in the same Western Cordillera Level II ecoregion, which is characterized by rugged mountain ranges, mostly mixed-coniferous forest ecosystems, and climates with winter snow and warm, dry summers that experience convective thunderstorms bringing lightning. The Arizona/New Mexico Mountains are alone at the top, about 23% above the next highest ecoregion. Interestingly, the ignitions in this region are different from the other top ecoregions in the West - they are dominated by the timber-litter and grass fuel groups, not timber-understory like the other ecoregions. This points to driving factors other than fuel type, like intense summer monsoonal lightning. It also suggests that it might not be appropriate to compare fuel types across ecoregions, but rather within ecoregions, which points out the importance of scale within the analysis.
+#
+# Hotspots cluster with their neighbors - the spatial lag and Moran's I (I = 0.616 on the log rate, p = 0.001) analysis shows this, but I doubt the driving force behind it is fuel characteristics. Ecoregions show drastically different fuel types - while grass and timber can both burn, it doesn't mean these two are somehow related. It's fair to say the clustering here is most likely driven by climate and regional weather patterns.
+#
+# The Southeast is a separate hotspot that warrants a closer look - particularly the Southern Coastal Plain and Southern Florida Coastal Plain. These regions are flat but experience a high degree of lightning strikes - the Southern Coastal Plain's ignitions are mostly timber fuels (timber litter 34%, timber-understory 32%), while the Southern Florida Coastal Plain's are mostly grass (54%), dominated by high-load humid-climate grasses like sawgrass. The two Southeast hotspots have different dominant fuel types and both have high ignition densities, which points to a driver other than fuel type, like lightning and climate.
+#
+# Fuel type is only part of the pattern we can draw conclusions from in this spatial analysis. While timber-understory has the highest ignition rate nationally and dominates ignitions in hotspots like the Northern Rockies (48%) and Sierra Nevada (43%), the Arizona/New Mexico Mountains and the Southeast show that other driving factors like lightning frequency and regional climate shape where ignition density falls.
+#
+# Overall, it is safe to say that ignitions concentrate where receptive fuels overlap with lightning, but the nuances within that overlap still need to be explored with further analysis and additional datasets (lightning) to draw any further conclusions.
 
 # %% [markdown]
 # ### Future Work
