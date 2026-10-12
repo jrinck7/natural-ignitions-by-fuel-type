@@ -17,7 +17,26 @@
         "PATH": "${containerEnv:PATH}:/home/jovyan/.local/bin"
     },
     "postCreateCommand": "command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash",
-    "postStartCommand": "bash /usr/local/bin/before-notebook.d/10-earthdata-netrc.sh",
+    // Two jobs, every container start.
+    //
+    // 1. Earthdata credentials (see 10-earthdata-netrc.sh).
+    //
+    // 2. Re-assert the Claude Code extension. customizations.vscode.extensions
+    //    below is NOT reliable on this machine: Docker Desktop's embedded DNS
+    //    is sometimes not answering yet when the container is created, so the
+    //    server-side install fails with ENOTFOUND and VS Code relays the
+    //    install to the host instead. That host-mediated leg then dies with
+    //    ECONNRESET on anthropic.claude-code specifically, because its VSIX is
+    //    ~116 MB where the python/jupyter ones are 8-18 MB and squeeze through.
+    //    Worse, Dev Containers writes .installExtensionsMarker BEFORE that
+    //    first attempt and never clears it on failure, so it never retries and
+    //    the container stays permanently without the extension.
+    //    Installing via the server's own CLI avoids the host leg entirely -
+    //    that download is not the one that breaks. The --list-extensions guard
+    //    makes this a fast no-op once the extension is present.
+    //    Do NOT "fix" this with remote.downloadExtensionsLocally: true; that
+    //    forces the host leg that is the actual point of failure.
+    "postStartCommand": "bash /usr/local/bin/before-notebook.d/10-earthdata-netrc.sh; CS=$(ls -1dt $HOME/.vscode-server/bin/*/bin/code-server 2>/dev/null | head -1); if [ -n \"$CS\" ]; then \"$CS\" --list-extensions 2>/dev/null | grep -qix anthropic.claude-code || \"$CS\" --install-extension anthropic.claude-code --force || true; fi",
     "customizations": {
         "vscode": {
             "extensions": [

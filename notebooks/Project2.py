@@ -17,12 +17,15 @@
 # # Project 2: Natural Wildfire Ignition Frequency by Fuel Type Across CONUS Ecoregions, 1992–2024
 #
 # **Names:** Jansen Rinck, Benjamin Barlog, Jianru Shen 
+#
 # **Class:** CSCI 502: Geospatial Data Science  
+#
 # **Date:** 10/6/2026
 
 # %% [markdown]
 # ## Introduction
-# **TO DO**
+#
+# Natural wildfire ignitions are not evenly distributed across the contiguous United States (CONUS), and the fuels present on the landscape are one factor shaping where they occur. By comparing ignition rates across fuel types and ecoregions, this analysis examines how fuels and fire interact, and how those interactions vary from region to region. The results can help fire and forest managers understand the spatial patterns of natural ignitions. This is increasingly important as ecosystems, especially post-fire landscapes with limited forest regeneration, shift away from historical vegetation structure. Analyses like this one can help assess the fire-regime shifts that may follow.
 
 # %% [markdown]
 # ## Research Question: 
@@ -43,7 +46,7 @@
 #    - Federal, State and Local fire data aggregated
 #    - Discovery date, final fire size, point location (1 sq mile accuracy), wildfire-cause
 #    - 2.3 million geo-referenced wildfire records
-# 2. [LANDFIRE's 40 Scott and Burgan Fire Behavior Fuel Model (FBFM40), CONUS raster (USFS & USGS](https://www.sciencebase.gov/catalog/item/6a1602c7b66b013d45990b82)
+# 2. [LANDFIRE's 40 Scott and Burgan Fire Behavior Fuel Model (FBFM40), CONUS raster (USFS & USGS)](https://www.sciencebase.gov/catalog/item/6a1602c7b66b013d45990b82)
 #    - 40 fuel models classifying surface fuel loading by type (grass, brush, timber, slash), size class, bed depth, and moisture of extinction
 #    - Fuel assignments aren't static - herbaceous fuels shift between live and dead through the growing season, and burned or otherwise disturbed areas are updated to reflect estimated recovery through 2022
 # 3. [Level III Ecoregions of the Conterminous United States (EPA)](https://www.epa.gov/eco-research/level-iii-and-iv-ecoregions-continental-united-states)
@@ -329,7 +332,17 @@ natural_ignitions = natural_ignitions[~dropped].copy()
 
 # %% [markdown]
 # ### Data Cleaning Discussion:
-# **TO DO**
+#
+# **Fire Occurance Data** 
+#
+# - Filtered to NWCG_Cause_Classification == "Natural"
+# - Clipped to CONUS through spatial join (point-in-polygon)
+# - Fire tagged with fuel class (30 m pixel) at its location
+# - Removed fires that were tagged with (NB1), snow/ice (NB2), water (NB8), barren (NB9), slash-blowdown (SB1–SB4) or no-data fuel
+#
+# **Ecoregions (EPA Level III)**
+#
+# - Dissolved on the US_L3CODE field because original dataset split polygons at state lines
 
 # %% [markdown]
 # ## Overview: Natural Ignitions by Fuel Class
@@ -442,16 +455,116 @@ plt.show()
 # ## Iteration 2: Spatial Weights & Moran's I
 
 # %%
-# TO DO Spatial weights & Moran's I — paste Colab cell 1 of 4 here
+# Queen contiguity: ecoregions are neighbors if they share any edge or corner
+w = weights.Queen.from_dataframe(ecoregion, use_index=False)
+w.transform = "R"   # row-standardize: each ecoregion's neighbor weights sum to 1
+
+# Number of neighbors for each ecoregion
+ecoregion["n_neighbors"] = pd.Series(w.cardinalities)
+
+# Ecoregions with one or two neighbors.
+few = ecoregion[ecoregion["n_neighbors"] <= 2]
+for i, row in few.iterrows():
+    neighbor_names = ecoregion.loc[w.neighbors[i], "US_L3NAME"].tolist()
+    print(row["US_L3NAME"], "has", row["n_neighbors"], "neighbor(s):", neighbor_names)
+
+# Draw the contiguity graph
+fig, ax = plt.subplots(figsize=(12, 8))
+ecoregion.plot(ax=ax, facecolor="whitesmoke", edgecolor="0.6", linewidth=0.3)
+w.plot(ecoregion, ax=ax,
+       edge_kws={"color": "tab:blue", "linewidth": 0.6},
+       node_kws={"color": "tab:red", "s": 8})
+ax.set_title("Queen contiguity between Level III ecoregions")
+ax.set_axis_off()
+plt.show()
 
 # %%
-# TO DO Spatial weights & Moran's I — paste Colab cell 2 of 4 here
+# Spatial lag of the ignition rate
+# Row standardized weights times the rate gives, for each ecoregion, the mean rate of its neighbors.
+ecoregion["lag_rate"] = weights.lag_spatial(w, ecoregion["ign_per_1000km2"].values)
+
+# Use the same 7 quantile breaks from the observed rate on both maps so the colors are comparable
+import mapclassify
+bins = mapclassify.Quantiles(ecoregion["ign_per_1000km2"], k=7).bins
+
+fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd",
+               scheme="user_defined", classification_kwds={"bins": bins},
+               edgecolor="0.4", linewidth=0.3, legend=True,
+               legend_kwds={"title": "Ignitions per 1,000 km²", "loc": "lower left"},
+               ax=axes[0])
+axes[0].set_title("Observed rate")
+axes[0].set_axis_off()
+
+ecoregion.plot(column="lag_rate", cmap="YlOrRd",
+               scheme="user_defined", classification_kwds={"bins": bins},
+               edgecolor="0.4", linewidth=0.3, legend=False,
+               ax=axes[1])
+axes[1].set_title("Spatial lag: mean rate of Queen neighbors (same classes)")
+axes[1].set_axis_off()
+
+plt.show()
+
+# %% [markdown]
+# **View. TO DO** 
 
 # %%
-# TO DO Spatial weights & Moran's I — paste Colab cell 3 of 4 here
+# Global Moran's I on the natural ignition rate
+from esda.moran import Moran
+
+rate = ecoregion["ign_per_1000km2"].values
+print("Smallest rate:", round(rate.min(), 2), " largest rate:", round(rate.max(), 2))
+
+# The rate is heavily skewed, run Moran's I on the log rate,
+log_rate = np.log(rate)
+
+np.random.seed(12345)
+mi_log = Moran(log_rate, w, permutations=999)
+mi_raw = Moran(rate, w, permutations=999)
+
+print("Moran's I, log rate:", round(mi_log.I, 3),
+      " expected under no autocorrelation:", round(mi_log.EI, 3),
+      " z:", round(mi_log.z_sim, 2),
+      " p (999 permutations):", mi_log.p_sim)
+print("Moran's I, raw rate:", round(mi_raw.I, 3),
+      " expected under no autocorrelation:", round(mi_raw.EI, 3),
+      " z:", round(mi_raw.z_sim, 2),
+      " p (999 permutations):", mi_raw.p_sim)
 
 # %%
-# TO DO Spatial weights & Moran's I — paste Colab cell 4 of 4 here
+# Moran scatterplot for the log rate
+# x axis: standardized log rate of each ecoregion
+# y axis: spatial lag of that value
+# With row standardized weights the slope of the line through the origin equals Moran's I.
+z = (log_rate - log_rate.mean()) / log_rate.std()
+lag_z = weights.lag_spatial(w, z)
+ecoregion["z_log_rate"] = z
+ecoregion["lag_z_log_rate"] = lag_z
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.scatter(z, lag_z, s=25, color="tab:red", edgecolor="0.3", linewidth=0.3)
+x_line = np.array([z.min(), z.max()])
+ax.plot(x_line, mi_log.I * x_line, color="0.2", linewidth=1.5)
+ax.axhline(0, color="0.5", linewidth=0.8, linestyle="--")
+ax.axvline(0, color="0.5", linewidth=0.8, linestyle="--")
+
+# Name the ecoregions that sit far from the rest
+for i in range(len(z)):
+    if abs(z[i]) > 2 or abs(lag_z[i]) > 1.5:
+        ax.annotate(ecoregion["US_L3NAME"].iloc[i], (z[i], lag_z[i]),
+                    fontsize=7, xytext=(3, 3), textcoords="offset points")
+
+# Quadrant labels
+ax.text(0.98, 0.98, "High-High", transform=ax.transAxes, ha="right", va="top")
+ax.text(0.02, 0.98, "Low-High", transform=ax.transAxes, ha="left", va="top")
+ax.text(0.02, 0.02, "Low-Low", transform=ax.transAxes, ha="left", va="bottom")
+ax.text(0.98, 0.02, "High-Low", transform=ax.transAxes, ha="right", va="bottom")
+
+ax.set_xlabel("Standardized log ignition rate")
+ax.set_ylabel("Spatial lag of standardized log ignition rate")
+ax.set_title(f"Moran scatterplot, I = {mi_log.I:.3f}, p = {mi_log.p_sim}")
+plt.show()
 
 # %% [markdown]
 # **Figure.** **TO DO**
@@ -632,7 +745,16 @@ plt.show()
 
 # %% [markdown]
 # ### Data Processing & Visualization
-# **TO DO**
+#
+# **Fuel Grouping**
+#
+# - Extracted fuel groups (GR, GS, SH, TU, TL, NB3) by their two letter prefix
+#
+# **Kernel Density**
+#
+# - Created a 1km grid over CONUS which is close to the 1 mi² accuracy of the Fire Occurance Data so a finer resolution wouldn't have added more detail 
+# - Summed all fires in each 1 km cell and used to Gaussian KDE to smoothed the data relative to cell cebtroids
+# - Crossvalidation with 5 k-fold shuffling to find the optimal bandwidth (sigma) for the Gaussian kernel
 
 # %% [markdown]
 # ## Iteration 4: Dominant Fuel Group by Ignition Density
