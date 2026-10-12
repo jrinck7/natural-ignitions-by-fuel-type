@@ -37,7 +37,7 @@
 # %% [markdown]
 # ### Hypothesis:
 #
-# Between 1992 and 2024, natural wildfire ignitions are not distributed randomly across CONUS ecoregions. They cluster by ecoregion and neighboring ecoregions will have similar ignition rates. Fuel types impact the rate of ignition - grass and grass-shrub fuels will be the most susceptible to natural ignitions relative to the area they cover.
+# Between 1992 and 2024, natural wildfire ignitions across CONUS are not distributed randomly - they are concentrated in specific fuel types. Timber-understory fuels, which combine forest litter with grass and shrubs in the understory, will be the most susceptible to natural ignitions relative to the area they cover. Differences in ignition density between ecoregions will be driven mainly by the mix of fuels each ecoregion contains.
 
 # %% [markdown]
 # # Data:
@@ -354,19 +354,140 @@ natural_ignitions = natural_ignitions[~dropped].copy()
 # ![](../images/Project2_OverviewofData_Legend.png)
 
 # %% [markdown]
-# **View.** **TO DO**
+# **View 1.** Natural-cause wildfire ignitions across CONUS, before non-burnable and slash-blowdown fires were removed. Each point is one ignition, colored by the LANDFIRE FBFM40 fuel class at its location. White lines are EPA Level III ecoregion boundaries.
 
 # %% [markdown]
 # ### Discussion - Overview
-# **TO DO**
+# This preliminary visualization shows only broad trends in ignitions by fuel type across CONUS. The sheer number of points makes it difficult to see patterns finer than the landscape scale. As expected, ignitions are concentrated in the West, specifically the Great Basin, the Northern and Middle Rockies, the Colorado Plateau, and the Arizona/New Mexico mountains, and they taper off toward the Midwest. Interestingly, Florida stands out as a hotspot in the East, possibly because of frequent lightning producing many small fires. Fuel classes at ignition points change clearly across ecoregions and often line up with ecoregion boundaries, which supports comparing ignitions by ecoregion. However, raw ignition counts can make a fuel type look dominant simply because it covers more area than other fuels, which shows the need to normalize ignition rates by fuel area. Finally, some ignitions fall on non-burnable fuel types, likely reflecting the ~1 mi² location accuracy of the fire records. Those records were removed during data cleaning.
+
+# %% [markdown]
+# ## Iteration 1: Kernel Density of Natural Ignitions
+
+# %%
+# Cross-validate KDE bandwidth (σ)
+# For each candidate σ, fit a Gaussian KDE on 4/5 of the fires and score how well it predicts
+# too small overfits individual fires, too large smooths away patterns.
+# Uses all fires because the best σ shrinks as the number of points grows.
+
+# Pull out the natural_ignitions coordinates in meters. The KDE needs projected coordinates (meters), not lat/lon
+fire_xy = np.column_stack([natural_ignitions.geometry.x, natural_ignitions.geometry.y])   # EPSG:5070 meters
+
+# Create a cross-validation bandwidth function that uses grid search to find the optimal sigma
+def cv_bandwidth(candidates):
+    search = GridSearchCV(
+        KernelDensity(kernel="gaussian", rtol=1e-4),   
+        {"bandwidth": candidates},                      # σ values to try, in meters
+        # 5 folds, shuffled: the file is ordered by agency/region, so shuffling keeps
+        # the folds from being grouped by region
+        cv=KFold(n_splits=5, shuffle=True, random_state=0),
+        n_jobs=-1,                                      # use all CPU cores
+    )
+    search.fit(fire_xy)
+    return search.best_params_["bandwidth"], search.cv_results_["mean_test_score"]
+
+# 2-stage coarse search over 2–30 km, then a finer search around the optimal sigma
+# Makes 12 bandwidths from 2-30km
+coarse = np.geomspace(2_000, 30_000, 12)
+# Runs the cross-validation on all 12 values and returns the best σ and the average score for each one
+best, scores = cv_bandwidth(coarse)
+# Returns the position of the highest score
+i = int(np.argmax(scores))
+# Use i for the fine search to make 7 candidates evenly spaced around the optimal sigma's two neighbors
+fine = np.linspace(coarse[max(i - 1, 0)], coarse[min(i + 1, len(coarse) - 1)], 7)
+# Return the best σ from the fine cv
+best_bandwidth, _ = cv_bandwidth(fine)
+
+print(f"Cross-validated bandwidth: {best_bandwidth / 1000:.1f} km")
+
+# %%
+# Step 1: 1 km grid over CONUS
+# Fires are counted per cell on this grid, then smoothed into density surfaces (KDE).
+# 1 km keeps local variation in ignitions; FPA FOD locations are only accurate to ~1 sq mi,
+# so going finer would add memory without adding real detail.
+
+cell_size = 1_000  # grid cell width/height in meters (EPSG:5070 units)
+
+# Grid extent = bounding box of the ecoregions (i.e., CONUS)
+xmin, ymin, xmax, ymax = ecoregion.total_bounds
+
+# Columns/rows needed to cover that box; ceil so the far edges aren't cut off
+ncols = int(np.ceil((xmax - xmin) / cell_size))
+nrows = int(np.ceil((ymax - ymin) / cell_size))
+
+# Affine transform: ties grid row/column positions to real-world coordinates.
+grid_transform = from_origin(xmin, ymax, cell_size, cell_size)
+
+# CONUS mask: True for cells inside an ecoregion, False for ocean/Canada/Mexico
+# all_touched=True keeps coastal/border cells that are only partly inside, so no fires get masked out
+conus_mask = rasterize(ecoregion.geometry, out_shape=(nrows, ncols), transform=grid_transform,
+                       fill=0, default_value=1, dtype="uint8", all_touched=True).astype(bool)
+
+# Each fire's grid cell: x counts columns right from xmin, y counts rows down from ymax
+natural_ignitions["COL"] = ((natural_ignitions.geometry.x - xmin) // cell_size).astype("int32")
+natural_ignitions["ROW"] = ((ymax - natural_ignitions.geometry.y) // cell_size).astype("int32")
+
+print(f"Grid: {nrows:,} rows x {ncols:,} cols = {nrows * ncols / 1e6:.1f}M cells "
+      f"({conus_mask.sum() / 1e6:.1f}M inside CONUS)")
+
+# Step 2: Count fires per 1 km cell
+# Each fire adds 1 to the cell it falls in (np.add.at handles many fires in the same cell)
+fire_counts = np.zeros((nrows, ncols), dtype="int32")
+np.add.at(fire_counts, (natural_ignitions["ROW"].to_numpy(), natural_ignitions["COL"].to_numpy()), 1)
+
+print(f"Total fires counted: {fire_counts.sum():,} (should equal {len(natural_ignitions):,})")
+print(f"Cells with at least one fire: {(fire_counts > 0).sum():,}")
+print(f"Most fires in one cell: {fire_counts.max()}")
+
+
+# Step 3: Gaussian KDE of natural ignitions on the 1 km grid
+bandwidth = round(best_bandwidth, -2)  # kernel standard deviation (σ) in meters, from cross-validation
+sigma_cells = bandwidth / cell_size    # gaussian_filter works in cells, not meters -> 5.1 cells
+                                       # 68% of each fire's weight stays within ~5 km of it and about 95% within ~10 km
+
+density = gaussian_filter(
+    fire_counts.astype("float32"),     # input grid (must be float)
+    sigma=sigma_cells,                 # width of the Gaussian, in cells
+    mode="constant",                   # treat everything beyond the grid edge as zero fires
+    cval=0.0,                       
+    truncate=4.0,                      # ignore cells farther than 4σ
+)
+
+# Each cell is 1 km², so the value is already fires per km² (1992–2024)
+density[~conus_mask] = np.nan          # blank out ocean / Canada / Mexico (~ = not in)
+
+print(f"Total before: {fire_counts.sum():,}  after: {np.nansum(density):,.0f}")
+
+# Create a plot
+fig, ax = plt.subplots(figsize=(12, 8))
+im = ax.imshow(density, extent=(xmin, xmin + ncols * cell_size, ymax - nrows * cell_size, ymax),
+               cmap="YlOrRd", norm=LogNorm(vmin=1e-3, vmax=np.nanmax(density)))
+ecoregion.boundary.plot(ax=ax, color="0.3", linewidth=0.3)
+fig.colorbar(im, ax=ax, shrink=0.6, label="Natural ignitions per km² (1992–2024)")
+ax.set_title(f"Kernel density of natural ignitions (Gaussian, σ = {bandwidth / 1000:.1f} km)")
+ax.set_axis_off()
+plt.show()
+
+
+
+# %% [markdown]
+# **View 2.** Kernel density of natural-cause wildfire ignitions across CONUS. Colors show natural ignitions per km² on a log scale. Grey lines are EPA Level III ecoregion boundaries.
+
+# %% [markdown]
+# ### Discussion – First Iteration
+#
+# Wildfire ignitions are heavily concentrated, with clear boundaries in particular ecoregions in the West and Southeast. About half of the   319,148 natural ignitions (~159,500) fall within just 401,247 km², or 5.1% of CONUS, and 80% (~255,300) fall within 1,237,645 km², or 15.8% of CONUS. The highest mean density of ignitions is in the Southwest, in the Arizona/New Mexico Mountains ecoregion, with nearly 0.3 ignitions/km². High-density bands closely follow ecoregion boundaries in the Cascades, Sierra Nevada, Blue Mountains, Idaho Batholith, and Northern Rockies - all five lie within the same Western Cordillera Level II ecoregion. These regions share forest fuel types in elevated terrain that sees frequent summer thunderstorms. Also noteworthy, Florida is an outlier compared to its East Coast neighbors, and a clear hotspot exists in the Black Hills of South Dakota (Middle Rockies ecoregion). Raw density doesn't tell us enough about fuel groups to draw any definitive conclusions - although we can see that many of the western hotspots are in areas dominated by the timber understory and timber litter fuel groups.
 
 # %% [markdown]
 # ### Data Processing & Visualization
 #
-# **TO DO**
+# **Kernel Density & Rasterizing**
+#
+# continuous data. Choosing a function and the appropriate bandwidth to use in the KDE are the two most important design features when implementing a KDE. A Gaussian curve is a function that generally works well with a variety of data. The bandwidth to choose for the Gaussian is less straightforward and requires its own analysis. Using grid search cross-validation to find the optimal bandwidth is one approach to optimizing this value. For each candidate bandwidth (σ), cross-validation splits the fires into 5 random groups (folds) and fits a Gaussian KDE on 4 of the 5 groups, holding out the 5th for validation. It scores the bandwidth on the held-out fold by comparing the density of the KDE to where the validation group's fires actually fall, using log-likelihood. Higher scores correspond to KDEs that capture the distribution more accurately. This process repeats 5 times so each group is held out once, then the log-likelihood scores are averaged. This approach penalizes bandwidths that are too small because the Gaussian is a narrow spike over each fire occurrence - held-out fires that fall outside the spikes are given a density of ~0. The log of a density close to 0 is a large negative value - a few fires in the gaps between the curves drag the average score way down. This results in the KDE memorizing the training data and overfitting. On the contrary, a very large bandwidth over each fire occurrence doesn't capture areas where hotspots exist because the peaks have been flattened - resulting in a blurred distribution and underfitting. Grid search is implemented twice in conjunction with cross-validation - first, 12 values from 2 - 30 km were tested, then 7 values around the winner of the first grid search - the result was a 5.1 km bandwidth.
+#
+# After the optimal bandwidth was found, a 1 km grid over CONUS was created and all fires within each cell were summed. The KDE was then run with the optimal bandwidth across the centroid of each grid cell and its corresponding fire occurrence count. The optimal bandwidth was chosen from each fire occurrence rather than the sum of fires per 1 km grid cell - summing fires per cell shifts each fire to the center of its cell, which is a very small shift compared to the 5 km width of the Gaussian. This results in a map that is only slightly smoother than one built from each fire occurrence, so the difference is negligible. Also, by summing fire counts per pixel we aren't losing any nuance in the fire occurrence dataset because the points within that dataset are only accurate within ~1 mi². The resulting KDE is much less expensive to rasterize than if it were smoothed over each fire occurrence point.
 
 # %% [markdown]
-# ## Iteration 1: Natural Ignitions per 1,000 km² by Ecoregion
+# ## Iteration 2: Natural Ignitions per 1,000 km² by Ecoregion
 
 # %%
 # Natural ignitions per ecoregion
@@ -382,7 +503,10 @@ ecoregion["ign_per_1000km2"] = ecoregion["ignitions"] / (ecoregion.area / 1e9)
 fig, ax = plt.subplots(figsize=(12, 8))
 ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd", scheme="quantiles", k=7,
                edgecolor="0.4", linewidth=0.3, legend=True,
-               legend_kwds={"title": "Natural ignitions per 1,000 km²", "loc": "lower left"},
+               # Legend placed outside the map: its upper-right corner sits at the axes' lower-left corner
+               # (bbox_to_anchor is in axes fractions), so it can't overlap the CONUS polygons
+               legend_kwds={"title": "Natural ignitions per 1,000 km²",
+                            "loc": "lower right", "bbox_to_anchor": (0.12, 0.0)},
                ax=ax)
 ax.set_title("Natural wildfire ignitions per 1,000 km² by ecoregion, 1992–2024")
 
@@ -429,11 +553,10 @@ def add_compass(ax, cx, cy, radius_km=90, style="arrow"):
     ax.text(cx, cy + r * 1.1, "N", ha="center", va="bottom", fontsize=13, fontweight="bold", zorder=5)
 
 # Place both in the lower right, using the plotted map's extent (meters, EPSG:5070)
-# (In Albers, true north tilts slightly away from "up" far from the -96° central meridian)
 x_lo, x_hi = ax.get_xlim()
 y_lo, y_hi = ax.get_ylim()
-bar_x = x_lo + 0.84 * (x_hi - x_lo)          # scale bar starts 84% of the way across (east of Florida)
-bar_y = y_lo + 0.05 * (y_hi - y_lo)          # and 5% up from the bottom
+bar_x = x_lo + 0.84 * (x_hi - x_lo)         
+bar_y = y_lo + 0.05 * (y_hi - y_lo)          
 add_scalebar(ax, bar_x, bar_y, length_km=500)
 add_compass(ax, bar_x + 250_000, bar_y + 0.08 * (y_hi - y_lo))   # centered right above the bar's midpoint
 
@@ -444,7 +567,7 @@ plt.show()
 # **View.** **TO DO**
 
 # %% [markdown]
-# ### Discussion – First Iteration
+# ### Discussion – Second Iteration
 # **TO DO**
 
 # %% [markdown]
@@ -452,7 +575,7 @@ plt.show()
 # **TO DO**
 
 # %% [markdown]
-# ## Iteration 2: Spatial Weights & Moran's I
+# ## Iteration 3: Spatial Weights & Moran's I
 
 # %%
 # Queen contiguity: ecoregions are neighbors if they share any edge or corner
@@ -570,7 +693,7 @@ plt.show()
 # **Figure.** **TO DO**
 
 # %% [markdown]
-# ### Discussion – Second Iteration
+# ### Discussion – Third Iteration
 # **TO DO**
 
 # %% [markdown]
@@ -578,116 +701,7 @@ plt.show()
 # **TO DO**
 
 # %% [markdown]
-# ## Iteration 3: Natural Ignition Density by Fuel Group
-
-# %%
-# Cross-validate KDE bandwidth (σ)
-# For each candidate σ, fit a Gaussian KDE on 4/5 of the fires and score how well it predicts
-# too small overfits individual fires, too large smooths away patterns.
-# Uses all fires because the best σ shrinks as the number of points grows.
-
-# Pull out the natural_ignitions coordinates in meters. The KDE needs projected coordinates (meters), not lat/lon
-fire_xy = np.column_stack([natural_ignitions.geometry.x, natural_ignitions.geometry.y])   # EPSG:5070 meters
-
-# Create a cross-validation bandwidth function that uses grid search to find the optimal sigma
-def cv_bandwidth(candidates):
-    search = GridSearchCV(
-        KernelDensity(kernel="gaussian", rtol=1e-4),   
-        {"bandwidth": candidates},                      # σ values to try, in meters
-        # 5 folds, shuffled: the file is ordered by agency/region, so shuffling keeps
-        # the folds from being grouped by region
-        cv=KFold(n_splits=5, shuffle=True, random_state=0),
-        n_jobs=-1,                                      # use all CPU cores
-    )
-    search.fit(fire_xy)
-    return search.best_params_["bandwidth"], search.cv_results_["mean_test_score"]
-
-# 2-stage coarse search over 2–30 km, then a finer search around the optimal sigma
-# Makes 12 bandwidths from 2-30km
-coarse = np.geomspace(2_000, 30_000, 12)
-# Runs the cross-validation on all 12 values and returns the best σ and the average score for each one
-best, scores = cv_bandwidth(coarse)
-# Returns the position of the highest score
-i = int(np.argmax(scores))
-# Use i for the fine search to make 7 candidates evenly spaced around the optimal sigma's two neighbors
-fine = np.linspace(coarse[max(i - 1, 0)], coarse[min(i + 1, len(coarse) - 1)], 7)
-# Return the best σ from the fine cv
-best_bandwidth, _ = cv_bandwidth(fine)
-
-print(f"Cross-validated bandwidth: {best_bandwidth / 1000:.1f} km")
-
-# %%
-# Step 1: 1 km grid over CONUS
-# Fires are counted per cell on this grid, then smoothed into density surfaces (KDE).
-# 1 km keeps local variation in ignitions; FPA FOD locations are only accurate to ~1 sq mi,
-# so going finer would add memory without adding real detail.
-
-cell_size = 1_000  # grid cell width/height in meters (EPSG:5070 units)
-
-# Grid extent = bounding box of the ecoregions (i.e., CONUS)
-xmin, ymin, xmax, ymax = ecoregion.total_bounds
-
-# Columns/rows needed to cover that box; ceil so the far edges aren't cut off
-ncols = int(np.ceil((xmax - xmin) / cell_size))
-nrows = int(np.ceil((ymax - ymin) / cell_size))
-
-# Affine transform: ties grid row/column positions to real-world coordinates.
-grid_transform = from_origin(xmin, ymax, cell_size, cell_size)
-
-# CONUS mask: True for cells inside an ecoregion, False for ocean/Canada/Mexico
-# all_touched=True keeps coastal/border cells that are only partly inside, so no fires get masked out
-conus_mask = rasterize(ecoregion.geometry, out_shape=(nrows, ncols), transform=grid_transform,
-                       fill=0, default_value=1, dtype="uint8", all_touched=True).astype(bool)
-
-# Each fire's grid cell: x counts columns right from xmin, y counts rows down from ymax
-natural_ignitions["COL"] = ((natural_ignitions.geometry.x - xmin) // cell_size).astype("int32")
-natural_ignitions["ROW"] = ((ymax - natural_ignitions.geometry.y) // cell_size).astype("int32")
-
-print(f"Grid: {nrows:,} rows x {ncols:,} cols = {nrows * ncols / 1e6:.1f}M cells "
-      f"({conus_mask.sum() / 1e6:.1f}M inside CONUS)")
-
-# Step 2: Count fires per 1 km cell
-# Each fire adds 1 to the cell it falls in (np.add.at handles many fires in the same cell)
-fire_counts = np.zeros((nrows, ncols), dtype="int32")
-np.add.at(fire_counts, (natural_ignitions["ROW"].to_numpy(), natural_ignitions["COL"].to_numpy()), 1)
-
-print(f"Total fires counted: {fire_counts.sum():,} (should equal {len(natural_ignitions):,})")
-print(f"Cells with at least one fire: {(fire_counts > 0).sum():,}")
-print(f"Most fires in one cell: {fire_counts.max()}")
-
-
-# Step 3: Gaussian KDE of natural ignitions on the 1 km grid
-bandwidth = round(best_bandwidth, -2)  # kernel standard deviation (σ) in meters, from cross-validation
-sigma_cells = bandwidth / cell_size    # gaussian_filter works in cells, not meters -> 5.1 cells
-                                       # 68% of each fire's weight stays within ~5 km of it and about 95% within ~10 km
-
-density = gaussian_filter(
-    fire_counts.astype("float32"),     # input grid (must be float)
-    sigma=sigma_cells,                 # width of the Gaussian, in cells
-    mode="constant",                   # treat everything beyond the grid edge as zero fires
-    cval=0.0,                       
-    truncate=4.0,                      # ignore cells farther than 4σ
-)
-
-# Each cell is 1 km², so the value is already fires per km² (1992–2024)
-density[~conus_mask] = np.nan          # blank out ocean / Canada / Mexico (~ = not in)
-
-print(f"Total before: {fire_counts.sum():,}  after: {np.nansum(density):,.0f}")
-
-# Create a plot
-fig, ax = plt.subplots(figsize=(12, 8))
-im = ax.imshow(density, extent=(xmin, xmin + ncols * cell_size, ymax - nrows * cell_size, ymax),
-               cmap="YlOrRd", norm=LogNorm(vmin=1e-3, vmax=np.nanmax(density)))
-ecoregion.boundary.plot(ax=ax, color="0.3", linewidth=0.3)
-fig.colorbar(im, ax=ax, shrink=0.6, label="Natural ignitions per km² (1992–2024)")
-ax.set_title(f"Kernel density of natural ignitions (Gaussian, σ = {bandwidth / 1000:.1f} km)")
-ax.set_axis_off()
-plt.show()
-
-
-
-# %% [markdown]
-# **View.** **TO DO**
+# ## Iteration 4: Natural Ignition Density by Fuel Group
 
 # %%
 # Fuel group = first two letters of the FBFM40 code (GR, GS, SH, TU, TL); NB3 agriculture -> "Ag"
@@ -740,7 +754,7 @@ plt.show()
 # **View.** **TO DO**
 
 # %% [markdown]
-# ### Discussion – Third Iteration
+# ### Discussion – Fourth Iteration
 # **TO DO**
 
 # %% [markdown]
@@ -749,15 +763,10 @@ plt.show()
 # **Fuel Grouping**
 #
 # - Extracted fuel groups (GR, GS, SH, TU, TL, NB3) by their two letter prefix
-#
-# **Kernel Density**
-#
-# - Created a 1km grid over CONUS which is close to the 1 mi² accuracy of the Fire Occurance Data so a finer resolution wouldn't have added more detail 
-# - Summed all fires in each 1 km cell and used to Gaussian KDE to smoothed the data relative to cell cebtroids
-# - Crossvalidation with 5 k-fold shuffling to find the optimal bandwidth (sigma) for the Gaussian kernel
+
 
 # %% [markdown]
-# ## Iteration 4: Dominant Fuel Group by Ignition Density
+# ## Iteration 5: Dominant Fuel Group by Ignition Density
 
 # %%
 # Track the highest-density group in each cell, one group at a time (saves memory vs. stacking)
@@ -792,7 +801,7 @@ plt.show()
 # **View.** **TO DO**
 
 # %% [markdown]
-# ### Discussion – Fourth Iteration
+# ### Discussion – Fifth Iteration
 # **TO DO**
 
 # %% [markdown]
@@ -800,7 +809,7 @@ plt.show()
 # **TO DO**
 
 # %% [markdown]
-# ## Iteration 5: Ignition Rate by Fuel Group
+# ## Iteration 6: Ignition Rate by Fuel Group
 
 # %% [markdown]
 # ### Fuel availability: area of each fuel type in each ecoregion 
@@ -955,8 +964,21 @@ plt.show()
 
 # %% [markdown]
 # ### Future Work
-# **TO DO**
+#
+# Grouping the 40 Scott and Burgan fuel models into broad fuel groups made the patterns easier to see, but it also hides differences between individual fuel classes. For example, a low-load dry-climate grass (GR1) and a high-load humid-climate grass (GR8) may respond to ignition very differently. Future work will compare ignition rates for the individual fuel classes within each group to find trends that the grouped analysis misses.
+#
+# Lightning exposure is the other major gap. The ignition rates in this analysis don't account for where lightning actually strikes, so a fuel may look receptive simply because it grows in storm-prone regions. Adding the GOES Geostationary Lightning Mapper (GLM) thunder-hour data would let us map lightning activity across CONUS and model ignitions as a function of both fuel and lightning. That would answer our original research question: whether some fuels convert lightning into ignitions more readily than others, independent of how much lightning they receive.
 
 # %% [markdown]
 # ### AI Appendix
-# **TO DO**
+#
+# **Prompts:**
+#
+# 1. I have three geospatial datasets: Spatial wildfire occurrence data for the United States, 1992–2020 (7th Edition) (USFS); LANDFIRE's 40 Scott and Burgan Fire Behavior Fuel Models (FBFM40) CONUS raster (USFS & USGS); and Level III Ecoregions of the Conterminous United States (EPA). Give me guidance on how to analyze these datasets to answer my research question: how are natural wildfire ignitions distributed across ecoregions, and which fuel types have the highest ignition rates relative to the area they cover?
+# 2. Guide me through creating a grid for a KD-Trees kernel density algorithm using fuel type from the fuelClass dataset (LANDFIRE), so each grid cell contains the majority fuel class.
+# 3. Give me the common libraries geospatial data scientists use to implement KDEs. I am going to implement a KDE on my fire-point-by-fuel-type dataset using a Gaussian function.
+# 4. What is a more feasible computational approach: keep the same cell size and count per point using a smaller bandwidth, or drop the cell size and sum the counts in each cell? Explain the tradeoffs of these two approaches.
+# 5. Now that I have my grid constructed and have summed the number of fires per grid cell, help me implement the suggested KDE. Walk through each step so I understand the code and the arguments being passed into the KDE function.
+# 6. Give me the typical libraries geospatial data scientists use to rasterize KDEs. Tell me about the methods and what to take into account when rasterizing point density data.
+#
+# **Reflection:** These prompts were pivotal in implementing my KDE, and they even pointed me toward using cross-validation (with sklearn) to find the optimal bandwidth for my Gaussian kernel. I found that chatting with GenAI, while taking the time to comment the code and ask about lines I didn't understand, helped me get further than I otherwise would have. I love seeing which libraries exist for what I'm trying to implement and getting a breakdown of each one, so I can find the one that best suits my needs. Learning to cache data on disk and to use `engine="pyogrio"` to read in large datasets was also extremely helpful for speeding up this notebook, as was figuring out the most feasible computational approach to rasterizing KDE data.
