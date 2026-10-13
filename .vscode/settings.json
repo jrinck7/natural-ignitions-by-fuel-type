@@ -2,5 +2,6 @@
   "files.watcherExclude": { "**/data/**": true, "**/.ipynb_checkpoints/**": true },
   "search.exclude": { "**/data/**": true },
   "python.analysis.exclude": ["**/data/**"],
-  "python.analysis.indexing": false
+  "python.analysis.indexing": false,
+  "files.autoSave": "afterDelay"
 }

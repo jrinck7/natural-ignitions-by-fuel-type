@@ -37,3 +37,6 @@ pdfs/*_files/
 # Personal Claude Code settings
 .claude/settings.json
 .claude/settings.local.json
+
+# Local reference PDFs
+updates/
