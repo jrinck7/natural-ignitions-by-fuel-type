@@ -1,14 +1,14 @@
-# Project 2 image: the gds-qgis environment plus NASA Earthdata access.
+# Project 2 image: the gds-base environment plus NASA Earthdata access.
 #
-# Built FROM the local gds-qgis image rather than duplicating its build, so this
+# Built FROM the local gds-base image rather than duplicating its build, so this
 # only adds a ~100 MB layer instead of a second 15.7 GB image. The trade-off is
-# that `gds-qgis:latest` is a floating local tag: rebuilding gds-qgis changes
+# that `gds-base:latest` is a floating local tag: rebuilding gds-base changes
 # this image's base the next time this is rebuilt. Rebuild both together if
 # you ever change the base.
 #
-# Requires gds-qgis:latest to exist locally. Build it first:
-#   docker build -t gds-qgis:latest ./gds-qgis
-FROM gds-qgis:latest
+# Requires gds-base:latest to exist locally. Build it first:
+#   docker build -t gds-base:latest ./gds-base
+FROM gds-base:latest
 
 # --- Norton TLS interception workaround (optional, OFF by default) ---
 # Only needed on a machine running Norton Web/Mail Shield, which MITM-
