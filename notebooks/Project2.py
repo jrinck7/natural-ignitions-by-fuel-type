@@ -45,7 +45,7 @@
 # 1. [Spatial wildfire occurrence data for the United States, 1992-2024 (7th Edition)(USFS)](https://www.fs.usda.gov/rds/archive/catalog/RDS-2013-0009.7)
 #    - Federal, State and Local fire data aggregated
 #    - Discovery date, final fire size, point location (1 sq mile accuracy), wildfire-cause
-#    - 2.3 million geo-referenced wildfire records
+#    - 2.7 million geo-referenced wildfire records
 # 2. [LANDFIRE's 40 Scott and Burgan Fire Behavior Fuel Model (FBFM40), CONUS raster (USFS & USGS)](https://www.sciencebase.gov/catalog/item/6a1602c7b66b013d45990b82)
 #    - 40 fuel models classifying surface fuel loading by type (grass, brush, timber, slash), size class, bed depth, and moisture of extinction
 #    - Fuel assignments aren't static - herbaceous fuels shift between live and dead through the growing season, and burned or otherwise disturbed areas are updated to reflect estimated recovery through 2022
@@ -786,64 +786,97 @@ for i, row in few.iterrows():
 
 # %%
 # Spatial lag of the ignition rate
-# Row standardized weights times the rate gives, for each ecoregion, the mean rate of its neighbors.
+# For each ecoregion, the mean rate of its neighbors.
 ecoregion["lag_rate"] = weights.lag_spatial(w, ecoregion["ign_per_1000km2"].values)
 
-# Each ecoregion's own rate next to the mean rate of its neighbors
-display(ecoregion[["US_L3NAME", "n_neighbors", "ign_per_1000km2", "lag_rate"]].head(10))
-
-# Use the same class breaks as the Iteration 2 map (rate_bins) on both maps so the colors are comparable
+# Same 7 quantile breaks on both maps so the colors are comparable
+import mapclassify
+bins = mapclassify.Quantiles(ecoregion["ign_per_1000km2"], k=7).bins
 
 fig, axes = plt.subplots(1, 2, figsize=(18, 7))
 
-ecoregion.plot(column="ign_per_1000km2", cmap=rate_cmap,
-               scheme="user_defined", classification_kwds={"bins": rate_bins},
+ecoregion.plot(column="ign_per_1000km2", cmap="YlOrRd",
+               scheme="user_defined", classification_kwds={"bins": bins},
                edgecolor="0.4", linewidth=0.3, legend=True,
-               # Legend outside the map so it doesn't overlap the CONUS polygons
-               legend_kwds={"title": "Ignitions per\n1,000 km² of fuel", "alignment": "left",
-                            "loc": "lower right", "bbox_to_anchor": (0.12, 0.0)},
+               legend_kwds={"title": "Ignitions per 1,000 km² of fuel", "loc": "lower left", "fontsize": 9},
                ax=axes[0])
-relabel_legend(axes[0], rate_labels)
-axes[0].set_title("Observed Rate")
-axes[0].set_axis_off()
+axes[0].set_title("Observed rate, 1992–2024")
 
-ecoregion.plot(column="lag_rate", cmap=rate_cmap,
-               scheme="user_defined", classification_kwds={"bins": rate_bins},
+ecoregion.plot(column="lag_rate", cmap="YlOrRd",
+               scheme="user_defined", classification_kwds={"bins": bins},
                edgecolor="0.4", linewidth=0.3, legend=False,
                ax=axes[1])
-axes[1].set_title("Spatial Lag: Mean Rate of Queen Neighbors (Same Classes)")
-axes[1].set_axis_off()
+axes[1].set_title("Spatial lag: mean rate of Queen neighbors")
 
+# Scale bar and north arrow
+for ax in axes:
+    x_lo, x_hi = ax.get_xlim()
+    y_lo, y_hi = ax.get_ylim()
+    bar_x = x_lo + 0.84 * (x_hi - x_lo)
+    bar_y = y_lo + 0.05 * (y_hi - y_lo)
+    add_scalebar(ax, bar_x, bar_y, length_km=500)
+    add_compass(ax, bar_x + 250_000, bar_y + 0.08 * (y_hi - y_lo))
+    ax.set_axis_off()
+
+# Projection box below the left map, like the other maps
+add_projection_box(axes[0])
+
+plt.tight_layout()
 plt.show()
 
 # %% [markdown]
-# **View 4.** Observed ignition rate per 1,000 km² of fuel for each ecoregion (left) next to its spatial lag, the mean rate of its Queen contiguity neighbors (right). Both maps use the same classes and colors as View 3.
+# **View 4.** Observed ignition rate per 1,000 km² of fuel for each ecoregion (left) next to its spatial lag, the mean rate of its Queen contiguity neighbors (right). Both maps use the same 7 quantile classes, so the colors are comparable.
+
+# %% [markdown]
+# The right map is a smoothed version of the left one. The West turns into one dark block and the central plains into one light block, which is what positive spatial autocorrelation looks like before it is measured. Florida stands out as the one place where an ecoregion is much darker than its lag, because its only neighbor has a lower rate.
 
 # %% [markdown]
 # Next, global Moran's I. The rate is very skewed, from under one to over three hundred, so it is run on the log of the rate. The raw rate is run as well to check that the answer does not depend on the transform.
 
 # %%
-# Global Moran's I on the natural ignition rate
+# Global Moran's I on the ignition rate
 from esda.moran import Moran
 
 rate = ecoregion["ign_per_1000km2"].values
-print("Smallest rate:", round(rate.min(), 2), " largest rate:", round(rate.max(), 2))
+print("Rate range:", round(rate.min(), 2), "to", round(rate.max(), 2))
 
-# The rate is heavily skewed, run Moran's I on the log rate,
+# Use the log rate.
 log_rate = np.log(rate)
 
 np.random.seed(12345)
 mi_log = Moran(log_rate, w, permutations=999)
 mi_raw = Moran(rate, w, permutations=999)
 
-print("Moran's I, log rate:", round(mi_log.I, 3),
-      " expected under no autocorrelation:", round(mi_log.EI, 3),
-      " z:", round(mi_log.z_sim, 2),
-      " p (999 permutations):", mi_log.p_sim)
-print("Moran's I, raw rate:", round(mi_raw.I, 3),
-      " expected under no autocorrelation:", round(mi_raw.EI, 3),
-      " z:", round(mi_raw.z_sim, 2),
-      " p (999 permutations):", mi_raw.p_sim)
+print("Moran's I (log rate):", round(mi_log.I, 3), " p:", mi_log.p_sim)
+print("Moran's I (raw rate):", round(mi_raw.I, 3), " p:", mi_raw.p_sim)
+print("Expected I if no spatial autocorrelation:", round(mi_log.EI, 3))
+
+# %% [markdown]
+# The next cell checks the same result another way. Each ecoregion is placed in one of the four Moran quadrants by comparing its own standardized rate with the average of its neighbors, and the slope of the spatial lag on the standardized rate should reproduce Moran's I.
+
+# %%
+# z: standardized log rate of each ecoregion
+# lag_z: the mean standardized log rate of its neighbors
+z = (log_rate - log_rate.mean()) / log_rate.std()
+lag_z = weights.lag_spatial(w, z)
+ecoregion["z_log_rate"] = z
+ecoregion["lag_z_log_rate"] = lag_z
+
+# Check the slope of lag_z
+slope = np.sum(z * lag_z) / np.sum(z * z)
+print("Slope of lag_z on z:", round(slope, 3), " Moran's I:", round(mi_log.I, 3))
+
+# Which quadrant of the Moran scatterplot each ecoregion falls in
+ecoregion["moran_quadrant"] = "High-Low"
+ecoregion.loc[(z > 0) & (lag_z > 0), "moran_quadrant"] = "High-High"
+ecoregion.loc[(z < 0) & (lag_z > 0), "moran_quadrant"] = "Low-High"
+ecoregion.loc[(z < 0) & (lag_z < 0), "moran_quadrant"] = "Low-Low"
+print(ecoregion["moran_quadrant"].value_counts())
+print()
+
+# Ecoregions that sit far from the rest
+far = ecoregion[(np.abs(z) > 2) | (np.abs(lag_z) > 1.5)]
+display(far[["US_L3NAME", "ign_per_1000km2", "z_log_rate", "lag_z_log_rate", "moran_quadrant"]])
 
 # %% [markdown]
 # Global Moran's I only says clustering exists. Local Moran's I says where. Each ecoregion is tested against its own neighbors, and the ones that are significant at 0.05 keep their quadrant label.
