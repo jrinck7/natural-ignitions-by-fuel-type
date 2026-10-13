@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.6
+#       jupytext_version: 1.15.2
 #   kernelspec:
 #     display_name: gds
 #     language: python
@@ -349,14 +349,17 @@ natural_ignitions = natural_ignitions[~dropped].copy()
 # %% [markdown]
 # ### Fuel availability: area of each fuel type in each ecoregion 
 #
-# Ignition counts alone favor fuels that cover a lot of ground. To identify which fuels are most
-# receptive to ignition, we need the area of each fuel class inside each ecoregion to create a normalized scale. Then
-# compare ignitions to that area (ignitions per km² of fuel).
+# Ignition counts favor fuels that cover a lot of ground. To identify which fuels are most
+# receptive to ignition, area is calculated for each fuel class inside each ecoregion to create a normalized scale. Then
+# ignitions are compared to that area (ignitions per km² of fuel).
 #
 # The 30 m fuel raster has far too many pixels to load at once so we will batch process them,
 # For each batch:
+#
 # 1. read the fuel codes
+#
 # 2. turn the ecoregion polygons into a matching array, so every pixel has a tag that corresponds to its ecoregion
+#
 # 3. count every (ecoregion, fuel class) pair and add it to a running total
 
 # %%
@@ -456,7 +459,7 @@ print(fuel_area.groupby("FUEL_GROUP")["area_km2"].sum().sort_values(ascending=Fa
 # ![](../images/Project2_OverviewofData_Legend.png)
 
 # %% [markdown]
-# **View 1.** Natural-cause wildfire ignitions across CONUS, before non-burnable and slash-blowdown fires were removed. Each point is one ignition, colored by the LANDFIRE FBFM40 fuel class at its location. White lines are EPA Level III ecoregion boundaries.
+# **View 1.** Natural-cause wildfire ignitions across CONUS, before non-burnable and slash-blowdown fires were removed. Each point is one ignition, colored by the LANDFIRE FBFM40 fuel class at its location.
 
 # %% [markdown]
 # ### Discussion – Overview
@@ -772,15 +775,15 @@ plt.show()
 # %% [markdown]
 # ### Data Processing & Visualization
 #
-# Natural ignitions are counted per ecoregion by grouping on the ecoregion code.
+# - Natural ignitions are counted per ecoregion by grouping on the ecoregion code.
 #
-# Only the six kept fuel groups count toward fuel area: grass, grass-shrub, shrub, timber understory, timber litter, and agriculture.
+# - Only the six kept fuel groups count toward fuel area: grass, grass-shrub, shrub, timber understory, timber litter, and agriculture.
 #
-# Rate was calculated as follows: Total ignitions / (total fuel area / 1,000 km²)
+# - Rate was calculated as follows: Total ignitions / (total fuel area / 1,000 km²)
 #
-# The regions are classified into 7 classes: 5, 15, 50, 100, 150, 200, and the max at ~316; all representing the rate as noted above.
+# - The regions are classified into 7 classes: 5, 15, 50, 100, 150, 200, and the max at ~316; all representing the rate as noted above.
 #
-# It is colored by a single yellow-red ramp with one color per class.
+# - It is colored by a single yellow-red ramp with one color per class.
 
 # %% [markdown]
 # ## Iteration 3: Spatial Weights & Moran's I
@@ -1144,33 +1147,33 @@ plt.show()
 
 
 # %% [markdown]
-# **View 6.** Fuel group with the highest natural ignition density in each 1 km cell, based on the fuel-group surfaces in View 5. Cells with almost no ignitions are left blank. White lines are EPA Level III ecoregion boundaries.
+# **View 6.** Fuel group with the highest natural ignition density in each 1 km cell, based on the fuel-group surfaces in View 5. Cells with almost no ignitions are left blank.
 
 # %% [markdown]
 # ### Discussion – Fifth Iteration
 #
-# Visualizing each 1km cell by its most prominent fuel type, we are able to see which fuel types contribute to the most number of fires by area.
+# - Visualizing each 1km cell by its most prominent fuel type, we are able to see which fuel types contribute to the most number of fires by area.
 #
-# The widest footprint of these fuel types seems to be grass, covering a large area in the Great Plains down through Texas and Oklahoma, along with a good chunk of the Florida Peninsula.
+# - The widest footprint of these fuel types seems to be grass, covering a large area in the Great Plains down through Texas and Oklahoma, along with a good chunk of the Florida Peninsula.
 #
-# Timber litter seems to be the most prominent fuel type in the east, comprising a large area there and very little elsewhere.
+# - Timber litter seems to be the most prominent fuel type in the east, comprising a large area there and very little elsewhere.
 #
-# Grass shrub seems to cluster around the Rocky Mountain region.
+# - Grass shrub seems to cluster around the Rocky Mountain region.
 #
-# Shrub seems to be confined to a small cluster in the Nevada/Utah area, with very few points scattered elsewhere.
+# - Shrub seems to be confined to a small cluster in the Nevada/Utah area, with very few points scattered elsewhere.
 #
-# Timber understory, similar to grass shrub, seems to cluster around the mountainous regions of the West, along with a few patches in the mountainous regions of the East.
+# - Timber understory, similar to grass shrub, seems to cluster around the mountainous regions of the West, along with a few patches in the mountainous regions of the East.
 #
-# Agriculture is scattered lightly around the country, with only a slightly higher concentration in the East.
+# - Agriculture is scattered lightly around the country, with only a slightly higher concentration in the East.
 
 # %% [markdown]
 # ### Data Processing & Visualization
 #
-# For each 1 km² cell, the fuel type with the highest number of ignitions within a 5.1km radius is selected.
+# - For each 1 km² cell, the fuel type with the highest number of ignitions within a 5.1km radius is selected.
 #
-# Cells whose highest density is below 0.001/km² are set to none to avoid insignificant noise.
+# - Cells whose highest density is below 0.001/km² are set to none to avoid insignificant noise.
 #
-# It is colored categorically by dominant fuel type, as denoted by the legend.
+# - It is colored categorically by dominant fuel type, as denoted by the legend.
 #
 # Note: because the input is a ~5km radius, each cell's color represents the dominant fuel type around the cell, not necessarily the region confined to the cell itself.
 
@@ -1232,7 +1235,7 @@ plt.show()
 
 
 # %% [markdown]
-# **Figure 1.** Natural ignitions per 1,000 km² of fuel per year for each fuel group across CONUS, 1992–2024. Error bars show exact Poisson 95% confidence intervals.
+# **Figure 1.** Natural ignitions per 1,000 km² of fuel per year for each fuel group across CONUS, 1992–2024. Error bars are Poisson 95% confidence intervals.
 
 # %% [markdown]
 # ### Discussion – Final Iteration
@@ -1244,13 +1247,13 @@ plt.show()
 # %% [markdown]
 # ### Data Processing & Visualization
 #
-# Ignitions per fuel group come from the cleaned ignition table. Fuel area per group comes from the 30 m fuel-raster tally summed across all ecoregions.
+# - Ignitions per fuel group come from the cleaned ignition table. Fuel area per group comes from the 30 m fuel-raster tally summed across all ecoregions.
 #
-# Rate is calculated as follows: Ignitions ÷ area × 1,000 ÷ 33 years
+# - Rate is calculated as follows: Ignitions ÷ area × 1,000 ÷ 33 years
 #
-# Ignition counts are treated as Poisson counts. The exact interval comes from chi-square quantiles, then is scaled to the same per-1,000 km² per-year units.
+# - Ignition counts are treated as Poisson counts. The exact interval comes from chi-square quantiles, then is scaled to the same per-1,000 km² per-year units.
 #
-# It is then plotted as a horizontal bar chart sorted by rate so that the most receptive fuels is on the top, with error bars for each rate.
+# - It is then plotted as a horizontal bar chart sorted by rate so that the most receptive fuels is on the top, with error bars for each rate.
 
 
 # %% [markdown]
@@ -1866,7 +1869,7 @@ save(dashboard, filename=OUTPUT_DIR / "ecoregion_fuel_dashboard.html",
 #
 # Fuel type is only part of the pattern we can draw conclusions from in this spatial analysis. While timber-understory has the highest ignition rate nationally and dominates ignitions in hotspots like the Northern Rockies (48%) and Sierra Nevada (43%), the Arizona/New Mexico Mountains and the Southeast show that other driving factors like lightning frequency and regional climate shape where ignition density falls.
 #
-# Overall, it is safe to say that ignitions concentrate where receptive fuels overlap with lightning, but the nuances within that overlap still need to be explored with further analysis and additional datasets (lightning) to draw any further conclusions.
+# At the landscape scale, ignitions appear to concentrate where receptive fuels overlap with frequent lightning, but the nuances within that overlap still need to be explored with further analysis and additional datasets (lightning) before drawing definitive conclusions.
 
 # %% [markdown]
 # ### Future Work
