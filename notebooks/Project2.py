@@ -195,8 +195,9 @@ from matplotlib.patches import Patch, Polygon, Rectangle
 # Interactive plotting (Bokeh: interactions run in the browser, so they also work in a saved HTML file)
 from bokeh.io import output_notebook, save, show
 from bokeh.layouts import column, row
-from bokeh.models import (ColorBar, ColumnDataSource, CustomJS, Div, FactorRange, HoverTool,
-                          LinearColorMapper, LogColorMapper, NumeralTickFormatter, Select, Slider)
+from bokeh.models import (Checkbox, CheckboxButtonGroup, ColorBar, ColumnDataSource, CustomJS, Div,
+                          FactorRange, HoverTool, LinearColorMapper, LogColorMapper, NumeralTickFormatter,
+                          RadioButtonGroup, Range1d, RangeSlider, Select, Slider, Span, TapTool, Whisker)
 from bokeh.plotting import figure
 
 DATA_DIR = Path("../data")
@@ -761,11 +762,25 @@ plt.show()
 
 # %% [markdown]
 # ### Discussion – Second Iteration
-# **TO DO**
+#
+# Here we are investigating each of the 85 Level III ecoregions by dividing the number of natural ignitions in that ecoregion by the total burnable area of the region. This removes the effect of ecoregion size and unburnable land. As a result, we are able to ask "how ignition-prone is this region?", as opposed to simply "where do most of the fires start?".
+#
+# There are some notable observations to be made here. The first thing to notice is that the rates are highly skewed; the median ecoregion experiences roughly 11 natural ignitions per 1,000 km², the maximum is around 316 ignitions per 1,000 km² in Arizona/New Mexico area, and over half of the ecoregions sit below 15 ignitions per 1,000 km². Only 20 regions have a fire rate over 50, and of those 20, 16 are above 100.
+#
+# Another interesting observation is Florida. Even when normalizing for area, Florida still experiences a high rate of natural ignitions; interesting for a relatively wet region. This effect was not isolated to Florida, as many other iteration 1 hot spots also show up as hot spots in this iteration. As a result, we can conclude that these hot-spots aren't just showing the effect of ecoregion area, they are actually more prone to fires even after normalizing for area.
 
 # %% [markdown]
 # ### Data Processing & Visualization
-# **TO DO**
+#
+# Natural ignitions are counted per ecoregion by grouping on the ecoregion code.
+#
+# Only the six kept fuel groups count toward fuel area: grass, grass-shrub, shrub, timber understory, timber litter, and agriculture.
+#
+# Rate was calculated as follows: Total ignitions / (total fuel area / 1,000 km²)
+#
+# The regions are classified into 7 classes: 5, 15, 50, 100, 150, 200, and the max at ~316; all representing the rate as noted above.
+#
+# It is colored by a single yellow-red ramp with one color per class.
 
 # %% [markdown]
 # ## Iteration 3: Spatial Weights & Moran's I
@@ -789,9 +804,9 @@ print()
 
 # Ecoregions with one or two neighbors.
 few = ecoregion[ecoregion["n_neighbors"] <= 2]
-for i, row in few.iterrows():
+for i, eco_row in few.iterrows():
     neighbor_names = ecoregion.loc[w.neighbors[i], "US_L3NAME"].tolist()
-    print(row["US_L3NAME"], "has", row["n_neighbors"], "neighbor(s):", neighbor_names)
+    print(eco_row["US_L3NAME"], "has", eco_row["n_neighbors"], "neighbor(s):", neighbor_names)
 
 # %% [markdown]
 # The five ecoregions with only one or two neighbors are either enclosed by a single ecoregion or sit on the coast or the Canadian border, where neighbors outside the data are missing. With row standardized weights, an ecoregion with one neighbor is compared to that single neighbor's rate, which matters later for Southern Florida.
@@ -1004,7 +1019,26 @@ plt.show()
 
 # %% [markdown]
 # ### Discussion – Fourth Iteration
-# **TO DO**
+#
+# Ranking the fuel types by total fire count, in descending order, goes as follows: 
+#
+# - Timber-litter:        70,376
+# - Grass-Shrub:          69,233
+# - Timber-understory:    66,568
+# - Grass:                64,053
+# - Shrub:                44,758
+# - Agriculture:          4,160
+#
+# By order of the visuals:
+#
+# - (a) Grass. Notable hotspots for grass show up in Arizona/New Mexico and Florida.
+# - (b) Grass-shrub. Notable hotspots for grass-shrub are concentrated in the West, with a few outlying points in Florida.
+# - (c) Shrub. Very similar to grass-shrub.
+# - (d) Timber-understory. There is a high concentration of timber-understory fires in the Northwest, Rocky Mountain region, and the forested areas of California.
+# - (e) Timber-litter. Very similar pattern to timber-understory, though this fuel type also shows a high concentration in the East, unlike many of the other fuel types.
+# - (f) Agriculture. Agriculture areas show very little fire activity. There are faint patches in the Great Plains and Mississippi Delta area. Although it covers roughly 15% of the total fuel area, it only accounts for around 1.3% of the total fires.
+#
+# Across all fuel types, we see that the Central Midwest and Corn Belt areas are the least prone to fires. They are grey/uncolored in nearly every panel.
 
 # %% [markdown]
 # ### Data Processing & Visualization
@@ -1081,11 +1115,31 @@ plt.show()
 
 # %% [markdown]
 # ### Discussion – Fifth Iteration
-# **TO DO**
+#
+# Visualizing each 1km cell by its most prominent fuel type, we are able to see which fuel types contribute to the most number of fires by area.
+#
+# The widest footprint of these fuel types seems to be grass, covering a large area in the Great Plains down through Texas and Oklahoma, along with a good chunk of the Florida Peninsula.
+#
+# Timber litter seems to be the most prominent fuel type in the east, comprising a large area there and very little elsewhere.
+#
+# Grass shrub seems to cluster around the Rocky Mountain region.
+#
+# Shrub seems to be confined to a small cluster in the Nevada/Utah area, with very few points scattered elsewhere.
+#
+# Timber understory, similar to grass shrub, seems to cluster around the mountainous regions of the West, along with a few patches in the mountainous regions of the East.
+#
+# Agriculture is scattered lightly around the country, with only a slightly higher concentration in the East.
 
 # %% [markdown]
 # ### Data Processing & Visualization
-# **TO DO**
+#
+# For each 1 km² cell, the fuel type with the highest number of ignitions within a 5.1km radius is selected.
+#
+# Cells whose highest density is below 0.001/km² are set to none to avoid insignificant noise.
+#
+# It is colored categorically by dominant fuel type, as denoted by the legend.
+#
+# Note: because the input is a ~5km radius, each cell's color represents the dominant fuel type around the cell, not necessarily the region confined to the cell itself.
 
 # %% [markdown]
 # ## Iteration 6: Ignition Rate by Fuel Group
@@ -1149,11 +1203,21 @@ plt.show()
 
 # %% [markdown]
 # ### Discussion – Final Iteration
-# **TO DO**
+#
+# With this final iteration, we can finally answer the question "What fuel types are most receptive to natural ignition?".
+#
+# Ranking the fuel types by the highest rate of natural ignitions per 1,000 km²/year, we see that timber-understory is the most receptive to natural ignitions, at a rate of roughly 3.0. The rate decreases by about 0.5 with each consecutive fuel group, though agriculture sits disproportionately lower than the rest and does not follow this trend.
 
 # %% [markdown]
 # ### Data Processing & Visualization
-# **TO DO**
+#
+# Ignitions per fuel group come from the cleaned ignition table. Fuel area per group comes from the 30 m fuel-raster tally summed across all ecoregions.
+#
+# Rate is calculated as follows: Ignitions ÷ area × 1,000 ÷ 33 years
+#
+# Ignition counts are treated as Poisson counts. The exact interval comes from chi-square quantiles, then is scaled to the same per-1,000 km² per-year units.
+#
+# It is then plotted as a horizontal bar chart sorted by rate so that the most receptive fuels is on the top, with error bars for each rate.
 
 
 # %% [markdown]
@@ -1233,18 +1297,24 @@ display(eco_summary.sort_values("rate", ascending=False).head().round(2))
 
 
 # %% [markdown]
-# ## Interactive heatmap + map: ignition rate by ecoregion and fuel group
+# ## Interactive dashboard: ignition metrics by fuel group, with a choropleth / KDE map
 #
-# Each heatmap cell is one fuel group inside one ecoregion. Hover over a cell for its counts, area, rate, and confidence interval.
-# - **Color by** switches between the ignition rate, relative rate, shares, and raw counts (heatmap and map together)
-# - **Sort ecoregions by** reorders the rows, e.g. by the rate on one fuel group to see where that fuel burns most
-# - **The slider** greys out cells where the fuel covers too little area for the rate to be trustworthy
-#   (a few fires on a tiny patch of fuel give a huge but meaningless rate).
+# The bar chart compares the six fuel groups. By default it shows all of CONUS; click an ecoregion on the map to see the same chart for that ecoregion alone. Hover over a bar for its counts, area, rate, and confidence interval.
+# - **Metric** switches between the ignition rate, relative rate, shares, and raw counts (bar chart and choropleth together)
+# - **Sort bars by value** orders the bars from highest to lowest
+# - **The area slider** greys out fuels that cover too little area for the rate to be trustworthy
+#   (a few fires on a tiny patch of fuel give a huge but meaningless rate). It matters most for single ecoregions.
 #
-# The map beside it shows **one fuel group at a time** in the same colors, so you can see whether high/low values cluster in space.
-# - **Click a heatmap cell**: the map switches to that cell's fuel group and outlines that ecoregion
-# - **Click an ecoregion on the map**: its row is highlighted in the heatmap. Click empty space to clear.
-# - Pan and zoom the map with the toolbar (useful for the small eastern ecoregions)
+# **Filters** (years, months, and fire size class) apply to everything at once: the bars, the choropleth, and the KDE. Rates are always per year, so a short range of years is still comparable to the full 33 years. The choropleth colors keep the scale of the full data set, so filtering to a smaller subset of fires makes the map paler instead of rescaling it.
+#
+# The map has two views, chosen with the **Choropleth / KDE** switch:
+# - **Choropleth** colors each ecoregion by the chosen metric for **one fuel group** at a time (chosen with the menu, or by clicking a bar).
+# - **KDE** draws the kernel density of the fires that pass the filters, using the fuel groups switched on in the row of buttons (click a bar to turn that group on or off). The bandwidth slider changes the smoothing, and 5.1 km is the cross-validated value from Iteration 1. The surface is recomputed in your browser each time a control changes, from a table of all 319,148 fires saved inside the HTML file. To keep it fast, the KDE is calculated on a 5 km grid, coarser than the 1 km grid of View 2, so fine detail is slightly softer.
+# - Hovering over an ecoregion in either view shows its counts and rates for the fuel groups shown.
+#
+# Pan and zoom the map with the toolbar (useful for the small eastern ecoregions).
+#
+# Error bars on the ignition rate are exact Poisson 95% confidence intervals, the same as Figure 1 (computed from a lookup table for up to 3,000 fires and a standard approximation above that, which is accurate at those counts). Relative-rate bars start at 1, the neutral value: bars to the right mean that fuel ignites more than its share of the area predicts.
 #
 # Everything is also saved as a standalone HTML file in `outputs/`. It works without Jupyter, so it can be shared or linked from the PDF.
 
@@ -1254,10 +1324,12 @@ output_notebook(hide_banner=True)
 MIN_FUEL_KM2 = 100           # default cut-off for "too little fuel to trust the rate"
 NO_FUEL = "#f0f0f0"          # fuel group doesn't exist in this ecoregion
 LOW_AREA = "#bdbdbd"         # fuel exists, but covers less than the slider's area
+KDE_GREY = "#e0e0e0"         # ecoregion fill underneath the KDE (the same grey as the View 5 maps)
 
-# One row per cell, with the ecoregion's names attached
+# One row per ecoregion x fuel group, with the ecoregion's names attached
 hm = eco_fuel.reset_index().join(eco_info, on="US_L3CODE")
 hm["fuel_name"] = hm["FUEL_GROUP"].map(names)
+hm["scope_label"] = hm["US_L3NAME"] + " (" + hm["US_L3CODE"].astype(str) + ")"
 reliable = hm["area_km2"] >= MIN_FUEL_KM2
 
 # Color scale bounds come from the 2nd–98th percentile of the trustworthy cells, so a few extreme cells don't wash out the rest
@@ -1270,49 +1342,33 @@ rel_lo, rel_hi = bounds("rel_rate")
 rel_max = max(1 / rel_lo, rel_hi)    # symmetric around 1 on a log scale, so 1 is the neutral middle color
 count_lo, count_hi = bounds("ignitions")
 
-# metric -> (label, matplotlib colormap, normalization)
+# metric -> (label, matplotlib colormap, normalization). The colormap and normalization color the choropleth; the
+# bars use the fuel group colors from the earlier maps. These scales are fixed (they come from the full data set).
 metrics = {
     "rate":       ("Ignition rate (ignitions per 1,000 km² of fuel per year)", "YlOrRd", LogNorm(rate_lo, rate_hi)),
     "rel_rate":   ("Relative rate (share of ignitions ÷ share of fuel area)", "RdBu_r", LogNorm(1 / rel_max, rel_max)),
-    "ign_share":  ("Share of the ecoregion's ignitions", "Purples", Normalize(0, 1)),
-    "area_share": ("Share of the ecoregion's fuel area", "Greens", Normalize(0, 1)),
-    "ignitions":  ("Ignition count, 1992–2024", "YlOrRd", LogNorm(max(count_lo, 1), count_hi)),
+    "ign_share":  ("Share of ignitions (of the area selected)", "Purples", Normalize(0, 1)),
+    "area_share": ("Share of fuel area (of the area selected)", "Greens", Normalize(0, 1)),
+    "ignitions":  ("Ignition count (years, months, and sizes selected)", "YlOrRd", LogNorm(max(count_lo, 1), count_hi)),
 }
+# Axis number format for the bar chart, per metric
+tick_formats = {"rate": "0.[0]", "rel_rate": "0.[0]", "ign_share": "0%", "area_share": "0%", "ignitions": "0,0"}
 
-# Pre-compute every cell's color for every metric (one column each); the browser just swaps columns
-mappers = {}
+# For each metric: the Bokeh color mapper for the color bar, plus the 256-color palette and (low, high, is_log)
+# so the browser can color the choropleth itself with the same rule as matplotlib
+mappers, palettes, norm_info = {}, {}, {}
 for key, (label, cmap_name, norm) in metrics.items():
-    cmap = plt.get_cmap(cmap_name)
-    values = hm[key].to_numpy(dtype=float)
-    rgba = cmap(norm(np.clip(values, norm.vmin, norm.vmax)))
-    hm[f"c_{key}"] = np.where(np.isnan(values), NO_FUEL, [to_hex(c) for c in rgba])
-    # Matching Bokeh color mapper so the color bar uses the same colors and range
-    palette = [to_hex(c) for c in cmap(np.linspace(0, 1, 256))]
-    Mapper = LogColorMapper if isinstance(norm, LogNorm) else LinearColorMapper
-    mappers[key] = Mapper(palette=palette, low=norm.vmin, high=norm.vmax)
+    palettes[key] = [to_hex(c) for c in plt.get_cmap(cmap_name)(np.linspace(0, 1, 256))]
+    is_log = isinstance(norm, LogNorm)
+    norm_info[key] = [float(norm.vmin), float(norm.vmax), is_log]
+    Mapper = LogColorMapper if is_log else LinearColorMapper
+    mappers[key] = Mapper(palette=palettes[key], low=norm.vmin, high=norm.vmax)
 
-def cell_colors(metric, min_area):
-    """Same rule as the JavaScript callback below: no fuel -> light grey, too little fuel -> grey, else the metric color."""
-    return np.where(hm["area_km2"] == 0, NO_FUEL,
-                    np.where(hm["area_km2"] < min_area, LOW_AREA, hm[f"c_{metric}"]))
-
-hm["fill"] = cell_colors("rate", MIN_FUEL_KM2)
-
-# Row orders for the sort menu. Rate sorts use only trustworthy cells; the rest go to the bottom.
-rate_wide = hm.pivot(index="US_L3NAME", columns="FUEL_GROUP", values="rate")
-area_wide = hm.pivot(index="US_L3NAME", columns="FUEL_GROUP", values="area_km2")
-orders = {
-    "Overall ignition rate (high → low)": eco_summary.sort_values("rate", ascending=False)["US_L3NAME"].tolist(),
-    "Level I region, then name": eco_info.sort_values(["NA_L1NAME", "US_L3NAME"])["US_L3NAME"].tolist(),
-    "Ecoregion code": eco_info["US_L3NAME"].tolist(),
-    "Name (A–Z)": sorted(eco_info["US_L3NAME"]),
-}
-for g in groups:
-    rate_g = rate_wide[g].where(area_wide[g] >= MIN_FUEL_KM2)
-    orders[f"{names[g]} rate (high → low)"] = rate_g.sort_values(ascending=False, na_position="last").index.tolist()
-# Bokeh draws the first category at the bottom, so reverse each list to put the first ecoregion on top
-orders = {k: v[::-1] for k, v in orders.items()}
-default_sort = "Overall ignition rate (high → low)"
+# Starting colors for the choropleth (rate, fuel group 1): no fuel -> light grey, too little fuel -> grey
+rate_norm = metrics["rate"][2]
+rate_rgba = plt.get_cmap("YlOrRd")(rate_norm(np.clip(hm["rate"].to_numpy(dtype=float), rate_norm.vmin, rate_norm.vmax)))
+hm["fill"] = np.where(hm["area_km2"] == 0, NO_FUEL,
+                      np.where(hm["area_km2"] < MIN_FUEL_KM2, LOW_AREA, [to_hex(c) for c in rate_rgba]))
 
 # Position of each cell's ecoregion (row in eco_info) and fuel group (in `groups`), so the browser can
 # find "the cell for ecoregion j and fuel group k" as index j * len(groups) + k (hm is ecoregion-major)
@@ -1320,10 +1376,85 @@ hm["eco_pos"] = hm["US_L3CODE"].map({code: j for j, code in enumerate(eco_info.i
 hm["fuel_pos"] = hm["FUEL_GROUP"].map({g: k for k, g in enumerate(groups)})
 assert (hm.index == hm["eco_pos"] * len(groups) + hm["fuel_pos"]).all()
 
-source = ColumnDataSource(hm.drop(columns="FUEL_GROUP"))
+# Fixed facts about each ecoregion x fuel group (fuel area, names). Everything that depends on the filters
+# (counts, rates, shares) is recomputed in the browser from the fire table below.
+source = ColumnDataSource(hm[["US_L3NAME", "scope_label", "NA_L1NAME", "fuel_name", "area_km2"]])
+
+# --- The fire table the browser filters ---
+# One row per fire with small integer codes: position on the 1 km grid, fuel group, year, month, size class, ecoregion.
+# Years, months and sizes are what the filters use; the grid position is what the KDE smooths.
+first_year, last_year = int(natural_ignitions["FIRE_YEAR"].min()), int(natural_ignitions["FIRE_YEAR"].max())
+assert last_year - first_year + 1 == n_years
+fire_size_class = fire_attrs["SIZE_CLASS"].cat.codes.to_numpy()       # 0-6 for A-G; -1 would mean a missing size
+assert fire_size_class.min() >= 0
+fire_table = ColumnDataSource({
+    "col": natural_ignitions["COL"].to_numpy().astype("uint16"),
+    "row": natural_ignitions["ROW"].to_numpy().astype("uint16"),
+    "group": fire_attrs["FUEL_GROUP"].map({g: k for k, g in enumerate(groups)}).to_numpy().astype("uint8"),
+    "year": (fire_attrs["FIRE_YEAR"].to_numpy() - first_year).astype("uint8"),
+    "month": fire_attrs["MONTH"].to_numpy().astype("uint8"),
+    "size": fire_size_class.astype("uint8"),
+    "eco": fire_attrs["US_L3CODE"].map({code: j for j, code in enumerate(eco_info.index)}).to_numpy().astype("uint8"),
+})
+
+# Exact Poisson 95% limits on a count c (same method as the rate CI above), for c = 0..3,000. Above that the browser
+# uses the Wilson-Hilferty approximation of the chi-square quantile, which is accurate for counts that large.
+ci_counts = np.arange(3_001)
+ci_lower = np.where(ci_counts > 0, chi2.ppf(0.025, 2 * ci_counts) / 2, 0).tolist()
+ci_upper = (chi2.ppf(0.975, 2 * ci_counts + 2) / 2).tolist()
+
+# --- KDE grid for the browser ---
+# Fires are binned onto a 5 km grid (5 x 5 of the 1 km cells), spreading each fire over the 4 nearest cell centers
+# ("linear binning") so that placing it on a coarser grid loses almost no position accuracy, then smoothed with the
+# same Gaussian filter as View 2. The browser repeats this each time a control changes.
+KDE_RES = 5
+kde_cell = KDE_RES * cell_size
+kde_ncols, kde_nrows = int(np.ceil(ncols / KDE_RES)), int(np.ceil(nrows / KDE_RES))
+
+# CONUS mask on the coarse grid: a coarse cell is kept if any of its 1 km cells is inside CONUS
+padded = np.zeros((kde_nrows * KDE_RES, kde_ncols * KDE_RES), dtype=bool)
+padded[:nrows, :ncols] = conus_mask
+kde_mask = padded.reshape(kde_nrows, KDE_RES, kde_ncols, KDE_RES).any(axis=(1, 3))
+
+def kde_surface(cols, rows, bandwidth_m):
+    """Ignitions per km² from fires at 1 km grid positions (cols, rows), the same steps the browser runs."""
+    x, y = (cols + 0.5) / KDE_RES - 0.5, (rows + 0.5) / KDE_RES - 0.5     # position in coarse cell-center units
+    x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
+    fx, fy = x - x0, y - y0
+    grid = np.zeros((kde_nrows, kde_ncols))
+    for dx, wx in ((0, 1 - fx), (1, fx)):
+        for dy, wy in ((0, 1 - fy), (1, fy)):
+            xi, yi = x0 + dx, y0 + dy
+            ok = (xi >= 0) & (xi < kde_ncols) & (yi >= 0) & (yi < kde_nrows)
+            np.add.at(grid, (yi[ok], xi[ok]), (wx * wy)[ok])
+    smooth = gaussian_filter(grid, sigma=bandwidth_m / kde_cell, mode="constant", cval=0.0, truncate=4.0)
+    return smooth / (kde_cell / 1_000) ** 2
+
+kde_start = np.where(kde_mask, kde_surface(natural_ignitions["COL"].to_numpy(), natural_ignitions["ROW"].to_numpy(),
+                                           bandwidth), np.nan).astype("float32")
+kde_source = ColumnDataSource({"image": [kde_start], "x": [xmin], "y": [ymax],
+                               "dw": [kde_ncols * kde_cell], "dh": [kde_nrows * kde_cell]})
+kde_aux = ColumnDataSource({"mask": kde_mask.ravel().astype("uint8")})     # which cells are inside CONUS
+
+# KDE colors: the same yellow-red log scale as View 2 and View 5 (below 0.001 per km² is left transparent)
+kde_low, kde_high = 1e-3, float(np.nanmax(kde_start))
+kde_mapper = LogColorMapper(palette=[to_hex(c) for c in plt.get_cmap("YlOrRd")(np.linspace(0, 1, 256))],
+                            low=kde_low, high=kde_high, low_color=(0, 0, 0, 0), nan_color=(0, 0, 0, 0))
+
+# CONUS-wide rows for the bar chart's default view: all ecoregions combined, one row per fuel group.
+conus = receptivity.rename_axis("FUEL_GROUP").reset_index()[["FUEL_GROUP", "ignitions", "area_km2"]]
+conus["ignitions"] = conus["ignitions"].astype(float)
+conus["ign_share"] = conus["ignitions"] / conus["ignitions"].sum()
+conus["area_share"] = conus["area_km2"] / conus["area_km2"].sum()
+conus["rel_rate"] = conus["ign_share"] / conus["area_share"]
+conus["rate"] = receptivity["rate"].to_numpy()                 # from Figure 1
+conus["rate_low"], conus["rate_high"] = receptivity["rate_low"].to_numpy(), receptivity["rate_high"].to_numpy()
+conus["fuel_name"] = conus["FUEL_GROUP"].map(names)
+conus["scope_label"] = "All of CONUS"
+conus["NA_L1NAME"] = "–"
 
 hover_rows = [
-    ("Ecoregion", "@US_L3NAME (@US_L3CODE)"),
+    ("Area", "@scope_label"),
     ("Level I region", "@NA_L1NAME"),
     ("Fuel group", "@fuel_name"),
     ("Ignitions", "@ignitions{0,0}"),
@@ -1334,29 +1465,38 @@ hover_rows = [
     ("Relative rate", "@rel_rate{0.00}×"),
 ]
 
-def make_color_bar():
-    return ColorBar(color_mapper=mappers["rate"], title=metrics["rate"][0], orientation="horizontal",
-                    width=420, height=12, location=(0, 0), padding=10,
-                    formatter=NumeralTickFormatter(format="0.[00]"))   # plain numbers instead of 10⁰, 10¹ on log scales
+# --- Bar chart ---
+# The bars' own source: six rows (one per fuel group) holding whichever area is selected, starting with CONUS.
+# value = the bar's length (from `base`); lo / hi = the confidence interval, drawn for the rate only.
+bar_columns = ["fuel_name", "scope_label", "NA_L1NAME", "ignitions", "area_km2", "rate", "rate_low",
+               "rate_high", "ign_share", "area_share", "rel_rate"]
+bar_source = ColumnDataSource({
+    **{col: conus[col].to_numpy() for col in bar_columns},
+    "value": conus["rate"].to_numpy(), "base": np.zeros(len(groups)),
+    "lo": conus["rate_low"].to_numpy(), "hi": conus["rate_high"].to_numpy(),
+    "bar_fill": np.array(colors),
+})
 
-# --- Heatmap ---
-p = figure(x_range=[names[g] for g in groups], y_range=FactorRange(factors=orders[default_sort]),
-           width=820, height=16 * len(eco_info) + 150, x_axis_location="above",
-           tools="tap", toolbar_location=None)
-# Selected cells (a clicked ecoregion's row) stay solid, everything else fades
-p.rect(x="fuel_name", y="US_L3NAME", width=0.96, height=0.9, source=source,
-       fill_color="fill", line_color=None,
-       selection_line_color="black", selection_line_width=1.5, nonselection_fill_alpha=0.35)
-p.add_tools(HoverTool(tooltips=hover_rows))
-p.axis.axis_line_color = None
-p.axis.major_tick_line_color = None
-p.grid.grid_line_color = None
-p.yaxis.major_label_text_font_size = "9pt"
-p.xaxis.major_label_text_font_size = "9pt"
-heat_bar = make_color_bar()
-p.add_layout(heat_bar, "above")
+bar_x = Range1d(0, conus["rate_high"].max() * 1.08)
+# Bokeh draws the first factor at the bottom, so list the groups from lowest to highest rate (highest on top)
+bar_fig = figure(y_range=FactorRange(factors=conus.sort_values("rate")["fuel_name"].tolist()),
+                 x_range=bar_x, width=560, height=380, tools="tap", toolbar_location=None,
+                 title="All of CONUS (all ecoregions combined)")
+bar_fig.hbar(y="fuel_name", left="base", right="value", height=0.7, source=bar_source,
+             fill_color="bar_fill", line_color="#555555", line_width=0.8, nonselection_fill_alpha=1,
+             nonselection_line_alpha=1, selection_line_color="black", selection_line_width=3)
+bar_fig.add_layout(Whisker(source=bar_source, base="fuel_name", lower="lo", upper="hi", dimension="width",
+                              level="overlay"))      # overlay: drawn in front of the bars
+ref_line = Span(location=1, dimension="height", line_color="black", line_dash="dashed", visible=False)
+bar_fig.add_layout(ref_line)                      # the neutral value 1, shown for the relative rate
+bar_fig.add_tools(HoverTool(tooltips=hover_rows))
+bar_fig.xaxis.formatter = NumeralTickFormatter(format=tick_formats["rate"])
+bar_fig.xaxis.axis_label = metrics["rate"][0]
+bar_fig.ygrid.grid_line_color = None
+bar_fig.yaxis.major_label_text_font_size = "10pt"
+bar_fig.outline_line_color = None
 
-# --- Choropleth ---
+# --- Map: ecoregion polygons (choropleth) with the KDE image on top of them ---
 # Simplify the outlines (1 km tolerance) so the saved HTML stays small; invisible at this map size
 eco_geoms = ecoregion.set_index(ecoregion["US_L3CODE"].astype(int)).geometry.simplify(1_000).loc[eco_info.index]
 
@@ -1367,118 +1507,319 @@ def rings(geom):
     ys = [[np.round(ring.xy[1]).tolist() for ring in (poly.exterior, *poly.interiors)] for poly in polys]
     return xs, ys
 
-# One row per ecoregion (same order as eco_info), starting on the first fuel group.
-# The browser copies the chosen fuel group's columns from the heatmap's source into this one.
+# One row per ecoregion (same order as eco_info), starting on the first fuel group. The browser refills these
+# columns whenever a control changes.
 map_df = hm[hm["FUEL_GROUP"] == groups[0]].drop(columns="FUEL_GROUP").reset_index(drop=True)
 map_df["xs"], map_df["ys"] = zip(*(rings(geom) for geom in eco_geoms))
 map_source = ColumnDataSource(map_df)
 
-m = figure(width=640, height=430, match_aspect=True, tools="pan,wheel_zoom,reset,tap",
+m = figure(width=640, height=430, match_aspect=True, tools="pan,wheel_zoom,reset",
            toolbar_location="below", title=f"Map: {names[groups[0]]}")
-m.multi_polygons(xs="xs", ys="ys", source=map_source, fill_color="fill",
-                 line_color="white", line_width=0.4,
-                 selection_line_color="black", selection_line_width=2.5,
-                 nonselection_fill_alpha=1, nonselection_line_color="white")
-m.add_tools(HoverTool(tooltips=hover_rows))
+# Layers, bottom to top: colored ecoregion fill, KDE image (hidden until KDE is chosen), then ecoregion outlines
+# (white on the choropleth, grey over the KDE). The outlines take the clicks and hovers, and the fill alpha of 0
+# keeps them see-through. selection_line_* outlines the clicked ecoregion in black.
+fill_layer = m.multi_polygons(xs="xs", ys="ys", source=map_source, fill_color="fill", line_color=None,
+                              nonselection_fill_alpha=1)
+kde_layer = m.image(image="image", x="x", y="y", dw="dw", dh="dh", source=kde_source, color_mapper=kde_mapper,
+                    origin="top_left", anchor="top_left", visible=False)
+outline_args = dict(xs="xs", ys="ys", source=map_source, fill_alpha=0, line_width=0.4,
+                    nonselection_fill_alpha=0, nonselection_line_alpha=1,
+                    selection_line_color="black", selection_line_width=2.5)
+white_outlines = m.multi_polygons(line_color="white", nonselection_line_color="white", **outline_args)
+grey_outlines = m.multi_polygons(line_color="#777777", nonselection_line_color="#777777", visible=False, **outline_args)
+outline_layers = [white_outlines, grey_outlines]
+m.add_tools(TapTool(renderers=outline_layers), HoverTool(tooltips=hover_rows, renderers=outline_layers))
 m.axis.visible = False
 m.grid.grid_line_color = None
 m.outline_line_color = None
-map_bar = make_color_bar()
+map_bar = ColorBar(color_mapper=mappers["rate"], title=metrics["rate"][0], orientation="horizontal",
+                   width=420, height=12, location=(0, 0), padding=10,
+                   formatter=NumeralTickFormatter(format="0.[00]"))   # plain numbers instead of 10⁰, 10¹ on log scales
 m.add_layout(map_bar, "above")
 
 # --- Widgets ---
-metric_select = Select(title="Color by", value="rate", width=380,
+metric_select = Select(title="Metric", value="rate", width=380,
                        options=[(k, label) for k, (label, _, _) in metrics.items()])
-sort_select = Select(title="Sort ecoregions by", value=default_sort, options=list(orders), width=300)
+sort_bars = Checkbox(label="Sort bars by value", active=True)
 area_slider = Slider(title="Grey out fuels covering less than (km²)", start=0, end=2_000, step=50,
                      value=MIN_FUEL_KM2, width=380)
-map_fuel = Select(title="Fuel group shown on map", value=groups[0], width=300,
+year_slider = RangeSlider(title="Years", start=first_year, end=last_year, value=(first_year, last_year),
+                          step=1, width=380)
+month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+month_buttons = CheckboxButtonGroup(labels=month_names, active=list(range(12)))
+size_buttons = CheckboxButtonGroup(labels=list("ABCDEFG"), active=list(range(7)))
+size_note = Div(text="Fire size class (acres): A &lt; 0.25 &nbsp; B 0.25–9.9 &nbsp; C 10–99.9 &nbsp; D 100–299 &nbsp; "
+                     "E 300–999 &nbsp; F 1,000–4,999 &nbsp; G 5,000+")
+fire_count = Div(text=f"<b>{len(natural_ignitions):,}</b> of {len(natural_ignitions):,} ignitions pass the filters")
+view_switch = RadioButtonGroup(labels=["Choropleth", "KDE"], active=0)
+map_fuel = Select(title="Choropleth: fuel group shown", value=groups[0], width=300,
                   options=[(g, names[g]) for g in groups])
+kde_buttons = CheckboxButtonGroup(labels=[names[g] for g in groups], active=list(range(len(groups))))
+bandwidth_slider = Slider(title="KDE bandwidth, σ (km)", start=3, end=15, step=0.1,
+                          value=round(bandwidth / 1_000, 1), width=300)
+kde_scale = Select(title="KDE color scale", value="fixed", width=300,
+                   options=[("fixed", "Fixed (same as View 2)"), ("auto", "Fit to the current filters")])
 grey_key = Div(text=f"<span style='background:{NO_FUEL};padding:0 8px'>&nbsp;</span> fuel group absent &nbsp; "
                f"<span style='background:{LOW_AREA};padding:0 8px'>&nbsp;</span> too little fuel area to trust the rate")
 
-# Columns copied from the heatmap's source onto the map for the chosen fuel group (colors + hover values)
-map_columns = ["fill", "fuel_name", "ignitions", "area_km2", "rate", "rate_low", "rate_high",
-               "ign_share", "area_share", "rel_rate"]
-
-# Runs in the browser whenever a widget changes: recolor cells and map, swap the color bars, reorder rows
+# Runs in the browser whenever a control changes or an ecoregion is clicked on the map. It counts the fires that
+# pass the filters, then refills the bars and the choropleth, and (in KDE view) rebuilds the density surface.
 update = CustomJS(
-    args=dict(source=source, map_source=map_source, metric=metric_select, sort=sort_select,
-              slider=area_slider, map_fuel=map_fuel, color_bars=[heat_bar, map_bar], map_fig=m,
-              mappers=mappers, orders=orders, y_range=p.y_range, map_columns=map_columns,
-              titles={k: label for k, (label, _, _) in metrics.items()},
-              fuel_names=names, groups=groups, no_fuel=NO_FUEL, low_area=LOW_AREA),
+    args=dict(fires=fire_table, source=source, map_source=map_source, bar_source=bar_source,
+              kde_source=kde_source, kde_aux=kde_aux, kde_mapper=kde_mapper, kde_fixed=[kde_low, kde_high],
+              kde_dims=[kde_ncols, kde_nrows, KDE_RES, kde_cell],
+              metric=metric_select, sort_bars=sort_bars, area_slider=area_slider, year_slider=year_slider,
+              month_buttons=month_buttons, size_buttons=size_buttons, fire_count=fire_count,
+              view_switch=view_switch, map_fuel=map_fuel, kde_buttons=kde_buttons,
+              bandwidth_slider=bandwidth_slider, kde_scale=kde_scale,
+              map_bar=map_bar, map_fig=m, bar_fig=bar_fig, x_axis=bar_fig.xaxis[0], x_range=bar_x,
+              y_range=bar_fig.y_range, ref_line=ref_line, fill_layer=fill_layer, kde_layer=kde_layer,
+              white_outlines=white_outlines, grey_outlines=grey_outlines,
+              mappers=mappers, palettes=palettes, norm_info=norm_info, ci_lower=ci_lower, ci_upper=ci_upper,
+              titles={k: label for k, (label, _, _) in metrics.items()}, tick_formats=tick_formats,
+              fuel_names=names, groups=groups, group_colors=colors, first_year=first_year,
+              no_fuel=NO_FUEL, low_area=LOW_AREA, kde_grey=KDE_GREY),
     code="""
-    const d = source.data;
-    const colors = d["c_" + metric.value];
-    for (let i = 0; i < d.fill.length; i++) {
-        d.fill[i] = d.area_km2[i] == 0 ? no_fuel : (d.area_km2[i] < slider.value ? low_area : colors[i]);
-    }
-    source.change.emit();
+    const n = groups.length;                       // fuel groups
+    const NE = source.data.area_km2.length / n;    // ecoregions
+    const m = metric.value;
+    const kdeMode = view_switch.active == 1;
 
-    // Map: ecoregion j takes the values of heatmap cell j * n_groups + k
-    const k = groups.indexOf(map_fuel.value);
-    const md = map_source.data;
-    for (const col of map_columns) {
-        for (let j = 0; j < md[col].length; j++) {
-            md[col][j] = d[col][j * groups.length + k];
+    // ---- Which fires pass the filters (years, months, size classes), counted per ecoregion x fuel group ----
+    const F = fires.data;
+    const y0 = year_slider.value[0] - first_year, y1 = year_slider.value[1] - first_year;
+    const years = y1 - y0 + 1;
+    const monthOk = new Uint8Array(13);
+    for (const a of month_buttons.active) monthOk[a + 1] = 1;
+    const sizeOk = new Uint8Array(7);
+    for (const a of size_buttons.active) sizeOk[a] = 1;
+    const kdeOn = new Uint8Array(n);
+    for (const a of kde_buttons.active) kdeOn[a] = 1;
+
+    const NC = kde_dims[0], NR = kde_dims[1], RES = kde_dims[2], cellM = kde_dims[3];
+    const grid = kdeMode ? new Float32Array(NC * NR) : null;
+    const counts = new Float64Array(NE * n);
+    let nPass = 0, nKde = 0;
+    for (let f = 0; f < F.col.length; f++) {
+        if (F.year[f] < y0 || F.year[f] > y1 || !monthOk[F.month[f]] || !sizeOk[F.size[f]]) continue;
+        const g = F.group[f];
+        counts[F.eco[f] * n + g] += 1;
+        nPass++;
+        if (kdeMode && kdeOn[g]) {
+            // Linear binning: share the fire among the 4 nearest coarse cell centers
+            nKde++;
+            const x = (F.col[f] + 0.5) / RES - 0.5, y = (F.row[f] + 0.5) / RES - 0.5;
+            const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+            for (let dy = 0; dy < 2; dy++) {
+                const r = yi + dy;
+                if (r < 0 || r >= NR) continue;
+                const wy = dy ? fy : 1 - fy;
+                for (let dx = 0; dx < 2; dx++) {
+                    const c = xi + dx;
+                    if (c < 0 || c >= NC) continue;
+                    grid[r * NC + c] += (dx ? fx : 1 - fx) * wy;
+                }
+            }
         }
     }
+    fire_count.text = "<b>" + nPass.toLocaleString() + "</b> of " + F.col.length.toLocaleString() +
+                      " ignitions pass the filters" +
+                      (kdeMode ? " (" + nKde.toLocaleString() + " in the KDE's fuel groups)" : "");
+
+    // ---- Rates and shares from counts and fuel areas ----
+    const Z = 1.959964;
+    // Wilson-Hilferty approximation of half a chi-square quantile (counts above the lookup table)
+    const wh = (nu, z) => { const a = 2 / (9 * nu); return nu * Math.pow(1 - a + z * Math.sqrt(a), 3) / 2; };
+    const ciLo = (c) => c == 0 ? 0 : (c < ci_lower.length ? ci_lower[c] : wh(2 * c, -Z));
+    const ciHi = (c) => c < ci_upper.length ? ci_upper[c] : wh(2 * c + 2, Z);
+    // Writes ignitions, area, rate (with 95% CI), shares and relative rate into row i of the columns in o.
+    // c, area: this fuel group (or set of groups); cTot, aTot: everything in the same ecoregion (or in CONUS)
+    const put = (o, i, c, area, cTot, aTot) => {
+        o.ignitions[i] = c;
+        o.area_km2[i] = area;
+        if (area > 0) {
+            const sc = 1000 / (area * years);
+            o.rate[i] = c * sc; o.rate_low[i] = ciLo(c) * sc; o.rate_high[i] = ciHi(c) * sc;
+        } else {
+            o.rate[i] = NaN; o.rate_low[i] = NaN; o.rate_high[i] = NaN;
+        }
+        o.area_share[i] = aTot > 0 ? area / aTot : NaN;
+        o.ign_share[i] = cTot > 0 ? c / cTot : NaN;
+        o.rel_rate[i] = (area > 0 && cTot > 0 && aTot > 0) ? (c / cTot) / (area / aTot) : NaN;
+    };
+    // Color rule of the choropleth, the same as matplotlib's: clip to the scale, then pick one of 256 colors
+    const colorOf = (mt, v) => {
+        const [lo, hi, isLog] = norm_info[mt];
+        v = Math.min(Math.max(v, lo), hi);
+        const t = isLog ? (Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) : (v - lo) / (hi - lo);
+        const pal = palettes[mt];
+        return pal[Math.min(pal.length - 1, Math.max(0, Math.floor(t * pal.length)))];
+    };
+
+    const area = source.data.area_km2;
+    const eTot = new Float64Array(NE), aTotE = new Float64Array(NE);        // per ecoregion, all fuel groups
+    const gTot = new Float64Array(n), aTotG = new Float64Array(n);          // per fuel group, all of CONUS
+    for (let e = 0; e < NE; e++) {
+        for (let g = 0; g < n; g++) {
+            eTot[e] += counts[e * n + g]; aTotE[e] += area[e * n + g];
+            gTot[g] += counts[e * n + g]; aTotG[g] += area[e * n + g];
+        }
+    }
+    const allFires = gTot.reduce((s, v) => s + v, 0), allArea = aTotG.reduce((s, v) => s + v, 0);
+
+    // ---- Map: each ecoregion takes the values of the fuel group shown (choropleth) or the KDE's fuel groups ----
+    const k = groups.indexOf(map_fuel.value);
+    const kdeGroups = kde_buttons.active.map(g => groups[g]).map(g => fuel_names[g]);
+    const md = map_source.data;
+    for (let e = 0; e < NE; e++) {
+        let c = 0, a = 0;
+        for (let g = 0; g < n; g++) {
+            if (kdeMode ? kdeOn[g] : g == k) { c += counts[e * n + g]; a += area[e * n + g]; }
+        }
+        put(md, e, c, a, eTot[e], aTotE[e]);
+        md.fuel_name[e] = kdeMode ? kdeGroups.join(", ") : fuel_names[map_fuel.value];
+        const v = md[m][e];
+        md.fill[e] = kdeMode ? kde_grey : (a == 0 || isNaN(v) ? no_fuel : (a < area_slider.value ? low_area : colorOf(m, v)));
+    }
     map_source.change.emit();
-    map_fig.title.text = "Map: " + fuel_names[map_fuel.value];
+    map_fig.title.text = kdeMode ? "Map: kernel density of " + kdeGroups.join(", ").toLowerCase() + " ignitions"
+                                 : "Map: " + fuel_names[map_fuel.value];
 
-    for (const bar of color_bars) {
-        bar.color_mapper = mappers[metric.value];
-        bar.title = titles[metric.value];
+    // ---- KDE: smooth the binned fires with a Gaussian (two 1-D passes) and show them as ignitions per km² ----
+    kde_layer.visible = kdeMode;
+    white_outlines.visible = !kdeMode;
+    grey_outlines.visible = kdeMode;
+    if (kdeMode) {
+        const sigma = bandwidth_slider.value * 1000 / cellM;       // in grid cells
+        const r = Math.floor(4 * sigma + 0.5);                     // kernel reaches 4 sigma, like the Python version
+        const w = new Float32Array(2 * r + 1);
+        let sw = 0;
+        for (let i = -r; i <= r; i++) { w[i + r] = Math.exp(-0.5 * i * i / (sigma * sigma)); sw += w[i + r]; }
+        for (let i = 0; i < w.length; i++) w[i] /= sw;
+        const tmp = new Float32Array(NC * NR);
+        for (let row = 0; row < NR; row++) {                      // along the rows
+            const base = row * NC;
+            for (let c = 0; c < NC; c++) {
+                let s = 0;
+                for (let q = Math.max(0, c - r); q <= Math.min(NC - 1, c + r); q++) s += w[q - c + r] * grid[base + q];
+                tmp[base + c] = s;
+            }
+        }
+        const img = kde_source.data.image[0], mask = kde_aux.data.mask;
+        const perKm2 = 1 / Math.pow(cellM / 1000, 2);
+        let top = 0;
+        for (let row = 0; row < NR; row++) {                      // down the columns
+            for (let c = 0; c < NC; c++) {
+                const i = row * NC + c;
+                if (!mask[i]) { img[i] = NaN; continue; }
+                let s = 0;
+                for (let q = Math.max(0, row - r); q <= Math.min(NR - 1, row + r); q++) s += w[q - row + r] * tmp[q * NC + c];
+                img[i] = s * perKm2;
+                if (img[i] > top) top = img[i];
+            }
+        }
+        kde_source.change.emit();
+        if (kde_scale.value == "auto" && top > 0) { kde_mapper.high = top; kde_mapper.low = top / 1000; }
+        else { kde_mapper.low = kde_fixed[0]; kde_mapper.high = kde_fixed[1]; }
     }
-    y_range.factors = orders[sort.value];
-""")
-for widget in (metric_select, sort_select, area_slider, map_fuel):
-    widget.js_on_change("value", update)
+    map_bar.color_mapper = kdeMode ? kde_mapper : mappers[m];
+    map_bar.title = kdeMode ? "Natural ignitions per km² (years, months, and sizes selected)" : titles[m];
+    map_bar.formatter.format = kdeMode ? "0.[00000]" : "0.[00]";
 
-# Linking clicks. Selecting one side updates the other; the equality checks stop the two from
-# endlessly re-triggering each other.
-# Heatmap click: select the clicked cell's whole row, show its fuel group on the map, outline the ecoregion
-heat_click = CustomJS(args=dict(source=source, map_source=map_source, map_fuel=map_fuel, groups=groups), code="""
-    const sel = source.selected.indices;
-    const n = groups.length;
-    if (sel.length == 0) {
-        if (map_source.selected.indices.length > 0) map_source.selected.indices = [];
-        return;
-    }
-    const j = source.data.eco_pos[sel[0]];
-    const row = Array.from({length: n}, (_, k) => j * n + k);
-    if (sel.length == 1) {
-        map_fuel.value = groups[source.data.fuel_pos[sel[0]]];   // a single clicked cell (not a whole row from the map)
-    }
-    if (sel.length != n || sel[0] != row[0]) source.selected.indices = row;
-    if (map_source.selected.indices[0] != j) map_source.selected.indices = [j];
-""")
-source.selected.js_on_change("indices", heat_click)
-
-# Map click: highlight that ecoregion's row in the heatmap
-map_click = CustomJS(args=dict(source=source, map_source=map_source, groups=groups), code="""
+    // ---- Bars: one row per fuel group, from the clicked ecoregion or from the CONUS totals ----
     const sel = map_source.selected.indices;
-    const n = groups.length;
-    if (sel.length == 0) {
-        if (source.selected.indices.length > 0) source.selected.indices = [];
-        return;
+    const j = sel.length > 0 ? sel[0] : -1;
+    const bd = bar_source.data;
+    for (let g = 0; g < n; g++) {
+        if (j < 0) put(bd, g, gTot[g], aTotG[g], allFires, allArea);
+        else put(bd, g, counts[j * n + g], area[j * n + g], eTot[j], aTotE[j]);
+        bd.scope_label[g] = j < 0 ? "All of CONUS" : source.data.scope_label[j * n];
+        bd.NA_L1NAME[g] = j < 0 ? "–" : source.data.NA_L1NAME[j * n];
+        const a = bd.area_km2[g];
+        bd.value[g] = a == 0 ? NaN : bd[m][g];
+        bd.base[g] = m == "rel_rate" ? 1 : 0;
+        bd.lo[g] = (m == "rate" && a > 0) ? bd.rate_low[g] : NaN;     // error bars only on the rate
+        bd.hi[g] = (m == "rate" && a > 0) ? bd.rate_high[g] : NaN;
+        bd.bar_fill[g] = a == 0 ? no_fuel : (a < area_slider.value ? low_area : group_colors[g]);
     }
-    const j = sel[0];
-    if (source.selected.indices[0] != j * n || source.selected.indices.length != n) {
-        source.selected.indices = Array.from({length: n}, (_, k) => j * n + k);
+    bar_source.change.emit();
+
+    // The outlined bars are the fuel group on the choropleth, or the fuel groups switched on in the KDE
+    const want = kdeMode ? kde_buttons.active.slice().sort((a, b) => a - b) : [k];
+    const cur = bar_source.selected.indices;
+    if (cur.length != want.length || !want.every((v, i) => v === cur[i])) bar_source.selected.indices = want;
+
+    // Bar order: highest value on top when sorting, otherwise the usual fuel group order
+    const order = Array.from({length: n}, (_, g) => g);
+    if (sort_bars.active) {
+        const val = (g) => isNaN(bd.value[g]) ? -1e300 : bd.value[g];
+        order.sort((a, b) => val(b) - val(a));
+    }
+    y_range.factors = order.map(g => fuel_names[groups[g]]).reverse();
+
+    // Axis: start at 0, end just past the longest bar (or error bar); relative rate also shows the line at 1
+    let top = 0;
+    for (let g = 0; g < n; g++) {
+        const t = isNaN(bd.hi[g]) ? bd.value[g] : bd.hi[g];
+        if (!isNaN(t) && t > top) top = t;
+    }
+    if (m == "rel_rate") top = Math.max(top, 1.5);
+    x_range.start = 0;
+    x_range.end = top > 0 ? top * 1.08 : 1;
+    ref_line.visible = (m == "rel_rate");
+    x_axis.axis_label = titles[m];
+    // Tick labels need more decimals when a filter leaves only small values
+    let fmt = tick_formats[m];
+    if (m == "rate" || m == "rel_rate") fmt = top < 0.2 ? "0.[000]" : (top < 2 ? "0.[00]" : "0.[0]");
+    else if (m == "ign_share" || m == "area_share") fmt = top < 0.1 ? "0.[0]%" : "0%";
+    x_axis.formatter.format = fmt;
+    bar_fig.title.text = j < 0 ? "All of CONUS (all ecoregions combined)" : bd.scope_label[0];
+""")
+for widget in (metric_select, area_slider, map_fuel, kde_scale):
+    widget.js_on_change("value", update)
+for widget in (year_slider, bandwidth_slider):
+    widget.js_on_change("value_throttled", update)       # recompute when the handle is released, not on every pixel
+for widget in (month_buttons, size_buttons, kde_buttons, view_switch):
+    widget.js_on_change("active", update)
+sort_bars.js_on_change("active", update)
+map_source.selected.js_on_change("indices", update)    # clicking an ecoregion (or empty space) changes the bars
+
+# Bar click. Choropleth view: show that bar's fuel group on the map. KDE view: switch that fuel group on or off
+# in the KDE (at least one stays on). Clicking empty space leaves things as they are.
+bar_click = CustomJS(args=dict(bar_source=bar_source, map_fuel=map_fuel, kde_buttons=kde_buttons,
+                               view_switch=view_switch, groups=groups), code="""
+    const sel = bar_source.selected.indices;
+    const same = (a, b) => a.length == b.length && a.every((v, i) => v === b[i]);
+    if (view_switch.active == 1) {
+        const on = kde_buttons.active.slice().sort((a, b) => a - b);
+        if (same(sel, on)) return;                             // the dashboard's own highlighting, not a click
+        if (sel.length == 1) {
+            const g = sel[0];
+            const next = on.includes(g) ? on.filter(x => x != g) : on.concat([g]).sort((a, b) => a - b);
+            if (next.length > 0) { kde_buttons.active = next; return; }    // this triggers the update
+        }
+        bar_source.selected.indices = on;
+    } else {
+        if (sel.length == 0) { bar_source.selected.indices = [groups.indexOf(map_fuel.value)]; return; }
+        if (map_fuel.value != groups[sel[0]]) map_fuel.value = groups[sel[0]];
     }
 """)
-map_source.selected.js_on_change("indices", map_click)
+bar_source.selected.js_on_change("indices", bar_click)
+bar_source.selected.indices = [0]                      # start with the first fuel group selected, like the map
 
-# The map panel sticks to the top of the window while you scroll down the (tall) heatmap
-map_panel = column(map_fuel, m, styles={"position": "sticky", "top": "0px", "align-self": "flex-start"})
-dashboard = column(row(metric_select, sort_select), area_slider, grey_key, row(p, map_panel))
+filters = column(Div(text="<b>Filters</b> – apply to the bars, the choropleth, and the KDE"),
+                 row(year_slider, column(Div(text="Months"), month_buttons)),
+                 row(column(Div(text="Fire size class"), size_buttons), size_note), fire_count)
+map_controls = column(view_switch, map_fuel, Div(text="KDE fuel groups (or click the bars)"), kde_buttons,
+                      row(bandwidth_slider, kde_scale))
+dashboard = column(filters,
+                   row(column(row(metric_select, sort_bars), area_slider, grey_key, bar_fig),
+                       column(map_controls, m)))
 show(dashboard)
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 save(dashboard, filename=OUTPUT_DIR / "ecoregion_fuel_dashboard.html",
-     title="Natural ignitions by ecoregion and fuel group")
+     title="Natural ignitions by fuel group and ecoregion")
 
 
 # %% [markdown]
