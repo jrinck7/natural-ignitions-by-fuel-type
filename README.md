@@ -33,6 +33,8 @@ All maps use the NAD83 Conus Albers Equal Area projection (EPSG:5070).
 
 ## Selected results
 
+![Natural wildfire ignition density across the contiguous United States, 1992 to 2024](images/natural_ignition_density_map.png)
+
 About half of all natural ignitions fall within 5.1 percent of the contiguous United States, and 80 percent fall within 15.8 percent. The highest ignition density is in the Arizona/New Mexico Mountains, at nearly 0.3 ignitions per km². After normalizing by fuel area, the median ecoregion has about 11 natural ignitions per 1,000 km² and the highest has about 316. Only 20 ecoregions exceed 50, and 16 of those exceed 100. Florida stays a hotspot after normalizing, even though it is a wet region.
 
 ## Repository layout
