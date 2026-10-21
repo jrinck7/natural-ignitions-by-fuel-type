@@ -23,6 +23,12 @@ spec = json.load(open(path)); \
 spec['env'] = {'PROJ_DATA': '/opt/conda/envs/gds/share/proj', 'PROJ_NETWORK': 'ON'}; \
 json.dump(spec, open(path, 'w'), indent=1)"
 
+# uv/uvx launch the QGIS MCP server (`claude mcp add qgis -- uvx ...`), which
+# talks to the QGIS plugin on the Windows host via host.docker.internal:9876.
+# The MCP registration itself lives in ~/.claude, a persistent volume; only
+# the uvx binary needs baking in. Pinned to match the rest of this file.
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
+
 USER jovyan
 
 EXPOSE 8888
