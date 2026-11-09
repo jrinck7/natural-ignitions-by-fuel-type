@@ -43,7 +43,13 @@
                 "ms-python.python",
                 "ms-toolsai.jupyter",
                 "anthropic.claude-code"
-            ]
+            ],
+            // The host's user settings point python.defaultInterpreterPath at
+            // C:/Users/jrinc/miniconda3/python.exe, which does not exist in this
+            // Linux container. Override it with the conda env earthaccess lives in.
+            "settings": {
+                "python.defaultInterpreterPath": "/opt/conda/envs/gds/bin/python"
+            }
         }
     },
     "mounts": [
